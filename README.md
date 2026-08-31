@@ -221,17 +221,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kiff/kiff-scan@v1
+      - uses: kiff/kiff-scan@v0.1.0
 ```
 
 Posts a sticky pull request comment, uploads SARIF to your Security tab, and
 **does not fail the build by default**. Once you have triaged a baseline:
 
 ```yaml
-      - uses: kiff/kiff-scan@v1
+      - uses: kiff/kiff-scan@v0.1.0
         with:
           fail-on: high
 ```
+
+Pin the exact tag. A moving `v1` tag will be published once the interfaces stop
+changing; until then a floating reference would silently change behaviour under
+you.
 
 ### Exit codes
 
