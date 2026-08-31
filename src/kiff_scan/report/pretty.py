@@ -162,10 +162,9 @@ def render(result: ScanResult, root: str) -> str:
     )
 
     if result.unsupported:
-        out.append(
-            f"  {_plural(len(result.unsupported), 'file')} could not be analysed "
-            "and were NOT counted as clean."
-        )
+        n = len(result.unsupported)
+        verb = "was" if n == 1 else "were"
+        out.append(f"  {_plural(n, 'file')} could not be analysed and {verb} NOT counted as clean.")
         out.append("  Run with --show-unsupported to list them.")
 
     out.append("")

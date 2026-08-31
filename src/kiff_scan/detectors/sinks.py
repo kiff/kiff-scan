@@ -18,7 +18,16 @@ from __future__ import annotations
 
 import ast
 
-__all__ = ["SINK_CALLS", "SHELL_ARGV", "EXEC_CALLS", "NAME_HINTS", "classify_function"]
+__all__ = [
+    "SINK_CALLS",
+    "SHELL_ARGV",
+    "EXEC_CALLS",
+    "NAME_HINTS",
+    "MAX_CALL_DEPTH",
+    "classify_function",
+    "local_functions",
+    "guard_calls_in_chain",
+]
 
 #: Final attribute of a call -> consequence category. Matched on the method
 #: name so that `client.delete_db_instance(...)`, `rds.delete_db_instance(...)`
@@ -156,21 +165,107 @@ def _sink_from_name(name: str, doc: str) -> tuple[str, str]:
     return "", ""
 
 
-def classify_function(fn: ast.AST) -> tuple[str, str, str, int]:
+#: How many module-local calls deep to follow. Agent tools are commonly thin
+#: wrappers over a helper, so stopping at the tool body reports clean on an agent
+#: that can plainly drop a database. Bounded to keep analysis fast and
+#: terminating; cycles are cut by the `seen` set.
+MAX_CALL_DEPTH = 4
+
+
+def local_functions(tree: ast.AST) -> dict[str, ast.AST]:
+    """Map name -> definition for every function defined in this module."""
+    out: dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            out.setdefault(node.name, node)
+    return out
+
+
+def _sink_via_local_calls(
+    fn: ast.AST,
+    locals_: dict[str, ast.AST],
+    depth: int,
+    seen: frozenset[str],
+) -> tuple[str, str, int, list[str]]:
+    """Follow calls to module-local functions looking for a sink.
+
+    Returns (category, reason, line_in_this_function, chain). `line_in_this_
+    function` is the line of the *call* that leads to the sink, so lexical
+    precedence in the caller stays meaningful: a guard placed before the helper
+    call does gate it.
+    """
+    if depth <= 0:
+        return "", "", 0, []
+
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _final_name(node)
+        if name not in locals_ or name in seen:
+            continue
+
+        callee = locals_[name]
+
+        category, reason, _line = _sink_from_body(callee)
+        if category:
+            return category, f"calls {name}() which {reason}", node.lineno, [name]
+
+        category, reason, _line, chain = _sink_via_local_calls(
+            callee, locals_, depth - 1, seen | {name}
+        )
+        if category:
+            return category, f"calls {name}() which {reason}", node.lineno, [name, *chain]
+
+    return "", "", 0, []
+
+
+def guard_calls_in_chain(
+    fn: ast.AST,
+    locals_: dict[str, ast.AST],
+    chain: list[str],
+    recognised: frozenset[str],
+) -> tuple[int, str] | None:
+    """A recognised guard call inside the called helper chain, if any.
+
+    Without this, moving a guard into the same helper that performs the action
+    would turn a correctly-guarded tool into a false positive.
+    """
+    for name in chain:
+        callee = locals_.get(name)
+        if callee is None:
+            continue
+        for node in ast.walk(callee):
+            if isinstance(node, ast.Call) and _final_name(node) in recognised:
+                return node.lineno, f"{_final_name(node)}() inside {name}()"
+    return None
+
+
+def classify_function(
+    fn: ast.AST,
+    locals_: dict[str, ast.AST] | None = None,
+) -> tuple[str, str, str, int, list[str]]:
     """Classify a function's consequence.
 
-    Returns (category, reason, confidence, sink_line). Category is "" when the
-    function is not a recognised consequential action.
+    Returns (category, reason, confidence, sink_line, chain). Category is "" when
+    the function is not a recognised consequential action. `chain` names the
+    module-local helpers traversed to reach the sink, empty for a direct call.
     """
     category, reason, line = _sink_from_body(fn)
     if category:
-        return category, reason, "call", line
+        return category, reason, "call", line, []
+
+    if locals_:
+        category, reason, line, chain = _sink_via_local_calls(
+            fn, locals_, MAX_CALL_DEPTH, frozenset({getattr(fn, "name", "")})
+        )
+        if category:
+            return category, reason, "call", line, chain
 
     name = getattr(fn, "name", "")
     doc = ast.get_docstring(fn) if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) else ""
     category, reason = _sink_from_name(name, doc or "")
     if category:
         # No observed call, so the whole function body is the location.
-        return category, reason, "declared", getattr(fn, "lineno", 0)
+        return category, reason, "declared", getattr(fn, "lineno", 0), []
 
-    return "", "", "", 0
+    return "", "", "", 0, []

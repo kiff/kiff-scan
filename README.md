@@ -123,6 +123,32 @@ rather than credited.
 Evidence levels: `decorator`, `call_before_sink`, `module_hook` (coarse — labelled
 as such), `call_after_sink` (reported), `none` (reported).
 
+## Thin wrappers do not hide the action
+
+Agent tools usually delegate. A scanner that stops at the tool body reports clean
+on this, and the function's own name gives nothing away:
+
+```python
+def _perform(target):
+    boto3.client("rds").delete_db_instance(DBInstanceIdentifier=target)
+
+@tool
+def handle_request(target: str):
+    "Process an operations request."
+    return _perform(target)
+```
+
+```
+  Most exposed: fn6_neutral.py:7  handle_request()
+    Consequence:             Data loss  (calls _perform() which calls delete_db_instance())
+    Match confidence:        call
+```
+
+Calls to functions in the same module are followed up to four hops, the chain is
+printed, and cycles terminate. A guard found inside the chain is credited, so
+moving your `authorize()` into the helper does not create a false finding.
+Cross-module calls are not followed — see the limitations below.
+
 ## Guard detection is vendor-neutral
 
 Your own `authorize()` clears a finding exactly as anything else does. About 30
@@ -245,9 +271,11 @@ safe. Specifically, kiff-scan does not establish that:
 
 And it does not look at runtime behaviour, network configuration, prompt
 injection, or any language other than Python. Decision detection uses **lexical
-precedence, not control flow**, so a conditional guard is credited; and it works
-at **function scope**, so a guard in a caller or an unrecognised middleware is
-missed, producing false positives. Every limitation is listed in
+precedence, not control flow**, so a guard inside `if not force:` is credited
+even though a caller can skip it; a guard is recognised **by name, not by
+behaviour**, so an `authorize()` that always returns `True` clears a finding; and
+calls are followed only **within a module**, so a destructive call one import away
+is missed. Every limitation is listed in
 [docs/COVERAGE.md](./docs/COVERAGE.md), including the ones we have not fixed.
 
 ## Found a case where it is wrong?

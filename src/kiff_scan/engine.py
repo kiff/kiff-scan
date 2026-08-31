@@ -65,6 +65,7 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
     hook = decisions.module_hook(tree)
     extra_decorators = frozenset(cfg.tool_decorators)
     extra_guards = frozenset(cfg.guards)
+    module_functions = sinks.local_functions(tree)
 
     findings: list[Finding] = []
     for node in ast.walk(tree):
@@ -75,11 +76,20 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
         if not route:
             continue
 
-        category, reason, confidence, sink_line = sinks.classify_function(node)
+        category, reason, confidence, sink_line, chain = sinks.classify_function(
+            node, module_functions
+        )
         if not category:
             continue
 
-        evidence = decisions.decision_for(node, sink_line, hook, extra_guards)
+        evidence = decisions.decision_for(
+            node,
+            sink_line,
+            hook,
+            extra_guards,
+            chain=chain,
+            local_functions=module_functions,
+        )
 
         findings.append(
             Finding(

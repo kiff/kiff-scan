@@ -176,12 +176,14 @@ def decision_for(
     sink_line: int,
     hook: Evidence | None,
     extra_guards: frozenset[str] = frozenset(),
+    chain: list[str] | None = None,
+    local_functions: dict[str, ast.AST] | None = None,
 ) -> Evidence:
     """Strongest decision evidence gating `sink_line` inside `fn`.
 
     Precedence: a guard decorator, then a guard call before the sink, then a
-    module-wide hook, then a call after the sink (which does not gate it), then
-    nothing.
+    guard inside the helper chain that reaches the sink, then a module-wide
+    hook, then a call after the sink (which does not gate it), then nothing.
     """
     decorator = _guard_decorator(fn)
     if decorator is not None:
@@ -196,6 +198,17 @@ def decision_for(
             detail=f"{name}() before the sink",
             line=line,
         )
+
+    # A guard may live in the helper that performs the action. Crediting it
+    # avoids reporting a correctly-guarded tool merely because the check sits one
+    # call away from the entry point.
+    if chain and local_functions:
+        from .sinks import guard_calls_in_chain
+
+        in_chain = guard_calls_in_chain(fn, local_functions, chain, GUARD_CALLS | extra_guards)
+        if in_chain is not None:
+            line, detail = in_chain
+            return Evidence(kind=DecisionEvidence.CALL_BEFORE_SINK, detail=detail, line=line)
 
     if hook is not None:
         return hook

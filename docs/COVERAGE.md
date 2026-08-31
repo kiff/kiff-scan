@@ -70,13 +70,39 @@ moment of execution rather than on the identity of the caller.
 
 | Confidence | Meaning | Effect |
 |---|---|---|
-| `call` | A recognised SDK call was found in the function body | Full severity |
+| `call` | A recognised SDK call was found, in the function body or in a module-local helper it calls | Full severity |
 | `declared` | Classified from the function name and docstring only | Capped at `medium` |
 
 The weaker signal is kept because agent tool bodies are frequently thin wrappers
 that delegate to a service, and dropping them would report clean on an agent
 that can plainly drop a database. It is capped rather than trusted, so a
 name-based inference alone cannot fail a build at `--fail-on high`.
+
+## Following calls
+
+Agent tools are commonly thin wrappers, so stopping at the tool body reports
+clean on an agent that can plainly delete a database:
+
+```python
+def _perform(target):
+    boto3.client("rds").delete_db_instance(DBInstanceIdentifier=target)
+
+@tool
+def handle_request(target: str):     # neither the name nor the docstring hints
+    "Process an operations request." # at anything destructive
+    return _perform(target)
+```
+
+kiff-scan follows calls to **functions defined in the same module**, up to four
+hops, and reports the chain: `calls _perform() which calls delete_db_instance()`.
+Cycles terminate. Guards found inside the chain are credited, so moving an
+`authorize()` into the helper does not turn a guarded tool into a finding.
+
+**Not followed:** calls into other modules or installed packages, methods
+resolved through an instance attribute whose class is defined elsewhere, and
+anything dispatched dynamically (a dict of callables, `getattr`, a registry).
+A destructive call one import away is still missed.
+
 
 ## Decision detection
 
@@ -100,12 +126,16 @@ approval function names are recognised out of the box; add your own with
 These are real and worth stating plainly:
 
 - **Lexical precedence, not control flow.** A guard call that appears before the
-  sink in source order is credited even if a branch could skip it. A v1
-  analyser cannot distinguish `if debug: authorize(...)` from an unconditional
-  check.
-- **Function scope only.** A guard applied in a caller, a middleware layer, a
-  framework hook the scanner does not recognise, or a different file is not
-  seen. This produces false positives, which are the safer direction to fail.
+  sink in source order is credited even if a branch could skip it. This is a
+  confirmed false negative: in
+  `if not force: authorize(...)` followed by the destructive call, the action is
+  reported as governed even though `force=True` skips the check.
+- **A guard is credited by name, not by behaviour.** A function called
+  `authorize()` that always returns `True` clears the finding. Static analysis
+  cannot tell an enforcing check from a stub.
+- **Module scope.** A guard applied in a caller, in middleware, in a framework
+  hook the scanner does not recognise, or in another file is not seen. This
+  produces false positives, which is the safer direction to fail.
 - **`module_hook` is coarse by nature.** It credits every tool in the module.
   The report labels it so, and you should confirm the hook is mounted in
   enforcing mode rather than an observe-only mode.

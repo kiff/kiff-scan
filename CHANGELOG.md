@@ -23,6 +23,11 @@ First release.
   function names recognised out of the box, extensible with `--guard` or config.
 - Match confidence (`call` vs `declared`), with name-only inferences capped below
   `high` severity so they cannot fail a build on their own.
+- Bounded interprocedural analysis: calls to functions defined in the same module
+  are followed up to four hops, so a tool that delegates its destructive work to
+  a helper is still reported, with the chain named in the reason. Cycles
+  terminate, and guards inside the chain are credited so the added reach does not
+  create false positives.
 - Reporters: terminal, JSON (`schema_version: 1`), SARIF 2.1.0, and Markdown.
 - `explain FILE:LINE` for the analysed path behind one finding.
 - `--fail-on {none,low,medium,high}`, defaulting to `medium` in the CLI and
