@@ -1,5 +1,12 @@
 # kiff-scan
 
+[![ci](https://github.com/kiff/kiff-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/kiff/kiff-scan/actions/workflows/ci.yml)
+[![claims: machine-verified](https://github.com/kiff/kiff-scan/actions/workflows/verify-claims.yml/badge.svg)](https://github.com/kiff/kiff-scan/actions/workflows/verify-claims.yml)
+[![PyPI](https://img.shields.io/pypi/v/kiff-scan)](https://pypi.org/project/kiff-scan/)
+[![Python](https://img.shields.io/pypi/pyversions/kiff-scan)](https://pypi.org/project/kiff-scan/)
+[![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)](./pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
 > **What can your AI agent do without asking?**
 
 kiff-scan finds the places where a model-controlled parameter reaches an action

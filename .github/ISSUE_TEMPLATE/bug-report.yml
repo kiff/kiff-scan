@@ -1,0 +1,54 @@
+name: Bug report
+description: A crash, a wrong exit code, broken output, or anything not about detection accuracy.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a *detection* mistake (missed or false finding), please use the
+        **Soundness challenge** template instead.
+
+        For anything security-relevant — egress, execution of analysed code,
+        writing outside `--output`, or source content leaking into a report —
+        please report it privately through the Security tab rather than here.
+        See [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact command, and the input if it matters.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: kiff-scan version
+      placeholder: "kiff-scan 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python version
+      placeholder: "macOS 15.1, Python 3.12.7"
+    validations:
+      required: true

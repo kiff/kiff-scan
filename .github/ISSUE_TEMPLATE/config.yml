@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security issue privately
+    url: https://github.com/kiff/kiff-scan/security/advisories/new
+    about: >
+      Egress, execution of analysed code, writing outside --output, or source
+      content leaking into a report. Please do not open a public issue for these.
+  - name: Ask a question
+    url: https://github.com/kiff/kiff-scan/discussions
+    about: Usage questions, framework support, and anything not yet a bug.

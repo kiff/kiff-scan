@@ -1,0 +1,70 @@
+name: Soundness challenge
+description: A case where the scanner gets it wrong — a missed finding, or a false one.
+title: "[soundness] "
+labels: ["soundness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A case where kiff-scan is wrong is the most valuable report this project
+        can receive. Accepted cases become permanent test fixtures, credited by
+        GitHub handle.
+
+        **A missed finding is the most serious kind**, because a scanner that
+        reports clean on unguarded code produces confident silence.
+
+        Before filing, please check [docs/COVERAGE.md](../blob/main/docs/COVERAGE.md).
+        Some behaviour is a documented limitation rather than a bug — notably
+        lexical precedence instead of control flow, guards recognised by name
+        rather than behaviour, and call following limited to a single module.
+        Those are known; a case that goes beyond them is what we want.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of mistake?
+      options:
+        - Missed finding (reported clean when it should not be)
+        - False finding (reported something not reachable or not consequential)
+        - Guard not honoured (a real check that should have cleared the finding)
+        - Wrong category or severity
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducing file
+      description: The smallest Python file that shows the problem.
+      render: python
+      placeholder: |
+        @tool
+        def drop_database(db_id: str):
+            client.delete_db_instance(DBInstanceIdentifier=db_id)
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What kiff-scan reported
+      description: "Output of `kiff-scan scan <file> --format json`, or the terminal report."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have reported, and why
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Output of `kiff-scan --version`"
+      placeholder: "kiff-scan 0.1.0"
+    validations:
+      required: true
