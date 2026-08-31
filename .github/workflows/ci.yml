@@ -36,14 +36,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
-      # The strongest available demonstration that the scanner needs no
-      # network: run the whole suite with outbound traffic blocked. If any
-      # code path tried to reach out, this job fails.
-      - name: Block outbound network, then test
+      - name: Run the suite with no network access
+        # Isolate only the test process in a fresh network namespace with nothing
+        # but loopback. Dropping traffic globally (iptables -P OUTPUT DROP) would
+        # also sever the runner's own connection to GitHub and hang the job.
         run: |
-          sudo iptables -P OUTPUT DROP
-          sudo iptables -A OUTPUT -o lo -j ACCEPT
-          python -m pytest -q
+          set -euo pipefail
+          sudo unshare --net -- sh -c '
+            ip link set lo up
+            exec "$(command -v python)" -m pytest -q
+          '
 
   lint:
     runs-on: ubuntu-latest

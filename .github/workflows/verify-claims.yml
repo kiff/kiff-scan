@@ -39,7 +39,10 @@ jobs:
       - name: Claim - an installed wheel pulls in nothing
         run: |
           set -euo pipefail
-          python -m pip download --no-deps --dest /tmp/whl .
+          # Build a real wheel. `pip download .` yields an sdist, not a wheel.
+          python -m pip install --quiet build
+          rm -rf /tmp/whl
+          python -m build --wheel --outdir /tmp/whl
           python -m venv /tmp/clean
           /tmp/clean/bin/python -m pip install --quiet /tmp/whl/*.whl
           installed=$(/tmp/clean/bin/python -m pip list --format=freeze | grep -v '^kiff-scan==' | grep -v '^pip==' | grep -v '^setuptools==' | grep -v '^wheel==' || true)
@@ -48,22 +51,25 @@ jobs:
             exit 1
           fi
           /tmp/clean/bin/kiff-scan --version
+          echo "clean install contains only kiff-scan"
 
       - name: Claim - documented exit codes
         run: |
-          set -uo pipefail
+          # errexit must be OFF here: these commands are *expected* to exit
+          # non-zero, and that exit code is the thing under test.
+          set +e
 
           kiff-scan scan tests/fixtures/ungoverned_ops.py > /dev/null 2>&1
-          test $? -eq 1 || { echo "expected exit 1 on findings"; exit 1; }
+          [ $? -eq 1 ] || { echo "expected exit 1 on findings"; exit 1; }
 
           kiff-scan scan tests/fixtures/hooked_agent.py > /dev/null 2>&1
-          test $? -eq 0 || { echo "expected exit 0 when all findings are governed"; exit 1; }
+          [ $? -eq 0 ] || { echo "expected exit 0 when all findings are governed"; exit 1; }
 
           kiff-scan scan /nonexistent > /dev/null 2>&1
-          test $? -eq 2 || { echo "expected exit 2 on usage error"; exit 1; }
+          [ $? -eq 2 ] || { echo "expected exit 2 on usage error"; exit 1; }
 
           kiff-scan scan tests/fixtures/ungoverned_ops.py --fail-on none > /dev/null 2>&1
-          test $? -eq 0 || { echo "expected exit 0 with --fail-on none"; exit 1; }
+          [ $? -eq 0 ] || { echo "expected exit 0 with --fail-on none"; exit 1; }
 
           echo "all documented exit codes behave as documented"
 
