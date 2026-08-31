@@ -40,12 +40,14 @@ jobs:
         # Isolate only the test process in a fresh network namespace with nothing
         # but loopback. Dropping traffic globally (iptables -P OUTPUT DROP) would
         # also sever the runner's own connection to GitHub and hang the job.
+        #
+        # The interpreter is resolved *before* sudo: sudo resets PATH, so
+        # resolving it inside would pick /usr/bin/python, which has no pytest.
         run: |
           set -euo pipefail
-          sudo unshare --net -- sh -c '
-            ip link set lo up
-            exec "$(command -v python)" -m pytest -q
-          '
+          PY="$(command -v python)"
+          echo "using interpreter: $PY"
+          sudo unshare --net -- sh -c 'ip link set lo up; exec "$1" -m pytest -q' _ "$PY"
 
   lint:
     runs-on: ubuntu-latest
