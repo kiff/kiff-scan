@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.21.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kiff-scan"
+version = "0.1.0"
+description = "Find where an AI agent can reach a consequential action with no state-aware decision on the path."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "KIFF" }]
+keywords = ["ai-agents", "static-analysis", "security", "authorization", "llm", "sast"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ZERO RUNTIME DEPENDENCIES.
+#
+# This is not a stylistic preference, it is the property that lets a security
+# team run kiff-scan against a codebase that has adopted nothing, without
+# taking on a dependency tree they would have to audit. A transitive dependency
+# is the most common way a developer tool acquires the ability to phone home.
+#
+# `tests/test_zero_deps.py` reads this list and fails if it is ever non-empty,
+# so the claim in the README cannot drift away from the packaging metadata.
+# ─────────────────────────────────────────────────────────────────────────────
+dependencies = []
+
+[project.optional-dependencies]
+# Development only. Never required to run a scan.
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+kiff-scan = "kiff_scan.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kiff/kiff-scan"
+Source = "https://github.com/kiff/kiff-scan"
+Issues = "https://github.com/kiff/kiff-scan/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kiff_scan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Fixtures are deliberately-unguarded sample code used as scanner input.
+# They must never be collected as tests or imported.
+addopts = "--ignore=tests/fixtures -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Fixtures are scanner *input*: deliberately unguarded, deliberately odd code
+# (unused variables, undefined decorators) chosen to exercise detectors. Linting
+# them would mean changing the very shapes under test.
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]

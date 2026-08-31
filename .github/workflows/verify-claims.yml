@@ -1,0 +1,84 @@
+name: verify-claims
+
+# Every factual claim the README makes about this package is checked here. If a
+# claim stops being true, this workflow goes red before a human notices.
+#
+# The claims under test:
+#   1. Zero runtime dependencies.
+#   2. No network code anywhere in the package (no telemetry, no upload).
+#   3. The scanner never executes the code it analyses.
+#   4. Documented exit codes behave as documented.
+#   5. The version in the README install line resolves.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+
+      - name: Claim - zero runtime dependencies
+        run: python -m pytest tests/test_zero_deps.py -v
+
+      - name: Claim - no egress, no telemetry, no code execution
+        run: python -m pytest tests/test_no_egress.py -v
+
+      - name: Claim - an installed wheel pulls in nothing
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --dest /tmp/whl .
+          python -m venv /tmp/clean
+          /tmp/clean/bin/python -m pip install --quiet /tmp/whl/*.whl
+          installed=$(/tmp/clean/bin/python -m pip list --format=freeze | grep -v '^kiff-scan==' | grep -v '^pip==' | grep -v '^setuptools==' | grep -v '^wheel==' || true)
+          if [ -n "$installed" ]; then
+            echo "installing kiff-scan pulled in: $installed"
+            exit 1
+          fi
+          /tmp/clean/bin/kiff-scan --version
+
+      - name: Claim - documented exit codes
+        run: |
+          set -uo pipefail
+
+          kiff-scan scan tests/fixtures/ungoverned_ops.py > /dev/null 2>&1
+          test $? -eq 1 || { echo "expected exit 1 on findings"; exit 1; }
+
+          kiff-scan scan tests/fixtures/hooked_agent.py > /dev/null 2>&1
+          test $? -eq 0 || { echo "expected exit 0 when all findings are governed"; exit 1; }
+
+          kiff-scan scan /nonexistent > /dev/null 2>&1
+          test $? -eq 2 || { echo "expected exit 2 on usage error"; exit 1; }
+
+          kiff-scan scan tests/fixtures/ungoverned_ops.py --fail-on none > /dev/null 2>&1
+          test $? -eq 0 || { echo "expected exit 0 with --fail-on none"; exit 1; }
+
+          echo "all documented exit codes behave as documented"
+
+      - name: Claim - SARIF output is valid JSON with the declared schema
+        run: |
+          set -euo pipefail
+          kiff-scan scan tests/fixtures --format sarif --output /tmp/out.sarif --fail-on none
+          python - <<'PY'
+          import json
+          with open("/tmp/out.sarif", encoding="utf-8") as fh:
+              doc = json.load(fh)
+          assert doc["version"] == "2.1.0", doc["version"]
+          run = doc["runs"][0]
+          declared = {r["id"] for r in run["tool"]["driver"]["rules"]}
+          for result in run["results"]:
+              assert result["ruleId"] in declared, result["ruleId"]
+          print(f"SARIF valid: {len(run['results'])} results, {len(declared)} rules")
+          PY

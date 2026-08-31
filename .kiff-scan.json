@@ -1,0 +1,7 @@
+{
+  "_comment": "kiff-scan's own config. tests/fixtures/ contains deliberately unguarded sample code used as scanner input, so it is excluded from a scan of this repository. Without this, kiff-scan would report findings against its own test data.",
+  "exclude": [
+    "tests/fixtures/*",
+    "tests/fixtures/**"
+  ]
+}

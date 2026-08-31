@@ -1,0 +1,146 @@
+name: "kiff-scan"
+description: "Find where an AI agent can reach a consequential action with no state-aware decision on the path."
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  path:
+    description: "Path to scan."
+    required: false
+    default: "."
+  fail-on:
+    description: >
+      Fail the check at this severity or above (none/low/medium/high).
+      Defaults to "none" -- the Action has its own reporting surface (a PR
+      comment and a SARIF upload), so findings stay visible even when the check
+      is green. Set to "high" once you have triaged your baseline. This
+      intentionally differs from the CLI default of "medium", where the exit
+      code is the only machine-readable signal.
+    required: false
+    default: "none"
+  config:
+    description: "Path to a .kiff-scan.json config file."
+    required: false
+    default: ""
+  comment-on-pr:
+    description: "Post a sticky summary comment on pull requests."
+    required: false
+    default: "true"
+  upload-sarif:
+    description: "Upload SARIF to the repository's Security tab."
+    required: false
+    default: "true"
+  version:
+    description: "Version of kiff-scan to install. Defaults to the action's own version."
+    required: false
+    default: ""
+
+outputs:
+  findings-count:
+    description: "Total consequential capabilities found."
+    value: ${{ steps.scan.outputs.findings-count }}
+  review-required:
+    description: "Findings with no decision on the path."
+    value: ${{ steps.scan.outputs.review-required }}
+  high-count:
+    description: "High-severity findings requiring review."
+    value: ${{ steps.scan.outputs.high-count }}
+  sarif-path:
+    description: "Path to the generated SARIF file."
+    value: ${{ steps.scan.outputs.sarif-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install kiff-scan
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -n "${{ inputs.version }}" ]; then
+          python -m pip install --quiet "kiff-scan==${{ inputs.version }}"
+        else
+          python -m pip install --quiet kiff-scan
+        fi
+        kiff-scan --version
+
+    - name: Scan
+      id: scan
+      shell: bash
+      run: |
+        set -uo pipefail
+        args=(scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}")
+        if [ -n "${{ inputs.config }}" ]; then
+          args+=(--config "${{ inputs.config }}")
+        fi
+
+        # Reports first, with the failure threshold disabled, so that a build
+        # configured to fail still produces its SARIF and comment.
+        kiff-scan "${args[@]:0:2}" --format sarif  --output kiff-scan.sarif --fail-on none
+        kiff-scan "${args[@]:0:2}" --format json   --output kiff-scan.json  --fail-on none
+        kiff-scan "${args[@]:0:2}" --format markdown --output kiff-scan.md  --fail-on none
+
+        python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        with open("kiff-scan.json", encoding="utf-8") as fh:
+            data = json.load(fh)
+        s = data["summary"]
+        print(f"findings-count={s['capabilities']}")
+        print(f"review-required={s['review_required']}")
+        print(f"high-count={s['by_severity']['high']}")
+        print("sarif-path=kiff-scan.sarif")
+        PY
+
+        # Human-readable output in the job log.
+        kiff-scan "${args[@]}" --show-unsupported
+        echo "scan-exit=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: kiff-scan.sarif
+        category: kiff-scan
+
+    - name: Comment on pull request
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- kiff-scan-report -->';
+          const body = marker + '\n' + fs.readFileSync('kiff-scan.md', 'utf8');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.body && c.body.includes(marker));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
+
+    - name: Enforce threshold
+      shell: bash
+      run: |
+        set -euo pipefail
+        kiff-scan scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}" > /dev/null
