@@ -228,14 +228,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kiff/kiff-scan@v0.1.0
+      - uses: kiff/kiff-scan@v0.1.1
 ```
 
 Posts a sticky pull request comment, uploads SARIF to your Security tab, and
 **does not fail the build by default**. Once you have triaged a baseline:
 
 ```yaml
-      - uses: kiff/kiff-scan@v0.1.0
+      - uses: kiff/kiff-scan@v0.1.1
         with:
           fail-on: high
 ```

@@ -32,9 +32,9 @@ inputs:
     required: false
     default: "true"
   version:
-    description: "Version of kiff-scan to install. Defaults to the action's own version."
+    description: "Package version to install. Defaults to the version matching this Action tag."
     required: false
-    default: ""
+    default: "0.1.1"
 
 outputs:
   findings-count:
@@ -62,28 +62,24 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if [ -n "${{ inputs.version }}" ]; then
-          python -m pip install --quiet "kiff-scan==${{ inputs.version }}"
-        else
-          python -m pip install --quiet kiff-scan
-        fi
+        python -m pip install --quiet "kiff-scan==${{ inputs.version }}"
         kiff-scan --version
 
     - name: Scan
       id: scan
       shell: bash
       run: |
-        set -uo pipefail
-        args=(scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}")
+        set -euo pipefail
+        args=(scan "${{ inputs.path }}")
         if [ -n "${{ inputs.config }}" ]; then
           args+=(--config "${{ inputs.config }}")
         fi
 
         # Reports first, with the failure threshold disabled, so that a build
         # configured to fail still produces its SARIF and comment.
-        kiff-scan "${args[@]:0:2}" --format sarif  --output kiff-scan.sarif --fail-on none
-        kiff-scan "${args[@]:0:2}" --format json   --output kiff-scan.json  --fail-on none
-        kiff-scan "${args[@]:0:2}" --format markdown --output kiff-scan.md  --fail-on none
+        kiff-scan "${args[@]}" --format sarif --output kiff-scan.sarif --fail-on none
+        kiff-scan "${args[@]}" --format json --output kiff-scan.json --fail-on none
+        kiff-scan "${args[@]}" --format markdown --output kiff-scan.md --fail-on none
 
         python - <<'PY' >> "$GITHUB_OUTPUT"
         import json
@@ -97,8 +93,7 @@ runs:
         PY
 
         # Human-readable output in the job log.
-        kiff-scan "${args[@]}" --show-unsupported
-        echo "scan-exit=$?" >> "$GITHUB_OUTPUT"
+        kiff-scan "${args[@]}" --fail-on none --show-unsupported
 
     - name: Upload SARIF
       if: ${{ inputs.upload-sarif == 'true' }}
@@ -143,4 +138,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        kiff-scan scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}" > /dev/null
+        args=(scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}")
+        if [ -n "${{ inputs.config }}" ]; then
+          args+=(--config "${{ inputs.config }}")
+        fi
+        kiff-scan "${args[@]}" > /dev/null

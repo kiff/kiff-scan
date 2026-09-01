@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-01
+
+### Fixed
+
+- Pin the package installed by each GitHub Action tag to the matching release,
+  so an existing Action tag cannot silently change when PyPI receives a newer
+  version.
+- Apply the Action's `config` input to SARIF, JSON, Markdown, terminal output,
+  and threshold enforcement.
+- Generate and publish reports before enforcing `fail-on`, including when a
+  finding exceeds the configured threshold.
+- Upgrade SARIF upload to `github/codeql-action/upload-sarif@v4`.
+
 ## [0.1.0] — 2026-09-01
 
 First release.

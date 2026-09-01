@@ -17,7 +17,7 @@ Library use:
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .config import Config, load_config
 from .engine import scan_file, scan_path, scan_source
