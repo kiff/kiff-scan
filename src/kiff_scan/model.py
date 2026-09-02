@@ -45,6 +45,12 @@ class DecisionEvidence(str, Enum):
     #: genuine whole-module signal, unlike a stray call in one function.
     MODULE_HOOK = "module_hook"
 
+    #: The framework's own human-in-the-loop flag is set on the tool
+    #: decorator -- `requires_confirmation=True`, `needs_approval=True`. The
+    #: framework will not run the tool without a human, which is a decision
+    #: boundary expressed in the framework's vocabulary rather than ours.
+    FRAMEWORK_APPROVAL = "framework_approval"
+
     #: Nothing found on the analysed path.
     NONE = "none"
 
@@ -67,6 +73,7 @@ class Evidence:
             DecisionEvidence.CALL_BEFORE_SINK,
             DecisionEvidence.DECORATOR,
             DecisionEvidence.MODULE_HOOK,
+            DecisionEvidence.FRAMEWORK_APPROVAL,
         )
 
 
@@ -91,6 +98,11 @@ class Finding:
     confidence: str = "call"
     #: Resolved domain action name, when the codebase declares one.
     action: str = ""
+    #: The tool declares `readOnlyHint=True` and yet reaches a consequential
+    #: call. Reported separately: the tool's own metadata is the accuser.
+    annotation_mismatch: bool = False
+    #: MCP ToolAnnotations declared on the tool decorator, as written.
+    annotations: dict = field(default_factory=dict)
 
     @property
     def consequence(self) -> Consequence:
@@ -101,7 +113,7 @@ class Finding:
         sev = self.consequence.severity
         # A name/docstring inference is weaker proof than an observed call, so
         # it is never allowed to raise a build failure at "high".
-        if self.confidence == "declared" and sev == "high":
+        if self.confidence in ("declared", "annotated") and sev == "high":
             return "medium"
         return sev
 

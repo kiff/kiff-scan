@@ -56,6 +56,33 @@ def _signature_params(fn: ast.AST) -> list[str]:
     return [n for n in names if n not in ("self", "cls")]
 
 
+def _functions_with_class_context(
+    tree: ast.AST,
+) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str]]:
+    """Every function in the module, paired with its tool base class if any.
+
+    Collected in one traversal. A method's reachability depends on the class it
+    is defined in -- `_run` is only a tool entry point on a Tool subclass --
+    and that context is lost by a flat `ast.walk`.
+    """
+    out: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str]] = []
+
+    def visit(node: ast.AST, tool_base: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, reachability.is_tool_class(child))
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                out.append((child, tool_base))
+                # Nested defs are helpers, not tool entry points, but they may
+                # still contain classes; keep walking without the base.
+                visit(child, "")
+            else:
+                visit(child, tool_base)
+
+    visit(tree, "")
+    return out
+
+
 def scan_source(source: str, path: str, config: Config | None = None) -> list[Finding]:
     """Analyse one module's source. Raises SyntaxError if it does not parse."""
     cfg = config or Config()
@@ -66,20 +93,52 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
     extra_decorators = frozenset(cfg.tool_decorators)
     extra_guards = frozenset(cfg.guards)
     module_functions = sinks.local_functions(tree)
+    imports = reachability.module_imports(tree)
+    registered = reachability.registered_functions(tree)
 
     findings: list[Finding] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-
-        route = reachability.reachability_of(node, action_map, extra_decorators)
+    for node, tool_base in _functions_with_class_context(tree):
+        route = reachability.reachability_of(
+            node,
+            action_map,
+            extra_decorators,
+            imports=imports,
+            registered=registered,
+            tool_base=tool_base,
+        )
         if not route:
             continue
 
-        category, reason, confidence, sink_line, chain = sinks.classify_function(
-            node, module_functions
+        params = _signature_params(node)
+        category, reason, confidence, sink_line, chain, sink_col = sinks.classify_function(
+            node, module_functions, frozenset(params)
         )
+
+        annotations = reachability.tool_annotations(node)
+
+        # A tool that declares itself read-only and then calls something
+        # destructive is the strongest finding available: the accusation comes
+        # from the author's own metadata, not from the scanner's vocabulary.
+        mismatch = bool(annotations.get("readOnlyHint")) and confidence == "call" and bool(category)
+
+        # `destructiveHint=True` with nothing else found is still worth
+        # surfacing: the author has told us it is dangerous.
+        if not category and annotations.get("destructiveHint"):
+            category, reason, confidence, sink_line, chain, sink_col = (
+                "EXECUTION",
+                "declares destructiveHint=True",
+                "annotated",
+                getattr(node, "end_lineno", node.lineno) + 1,
+                [],
+                0,
+            )
+
         if not category:
+            continue
+
+        # A read-only annotation with no contradicting call is the author
+        # telling us this is a read. Believe it.
+        if annotations.get("readOnlyHint") and not mismatch:
             continue
 
         evidence = decisions.decision_for(
@@ -89,6 +148,8 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
             extra_guards,
             chain=chain,
             local_functions=module_functions,
+            approval=reachability.approval_evidence(node),
+            sink_col=sink_col,
         )
 
         findings.append(
@@ -99,10 +160,12 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
                 category=category,
                 reason=reason,
                 reachable_by=route,
-                inputs=_signature_params(node),
+                inputs=params,
                 evidence=evidence,
                 confidence=confidence,
                 action=action_map.get(node.name, ""),
+                annotation_mismatch=mismatch,
+                annotations=annotations,
             )
         )
 
