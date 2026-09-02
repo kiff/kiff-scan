@@ -5,6 +5,7 @@ How to run kiff-scan, read what it prints, and wire it into a project.
 ## Contents
 
 * [Running a scan](#running-a-scan)
+* [Generating a governability assessment](#generating-a-governability-assessment)
 * [Reading a report](#reading-a-report)
 * [Confidence: call vs declared vs annotated](#confidence-call-vs-declared-vs-annotated)
 * [Decision evidence](#decision-evidence)
@@ -32,6 +33,24 @@ or executes the file, so pointing it at a repository you do not trust is safe.
 Files it cannot parse are reported as unsupported. They are never counted as
 clean, because "I could not read this" and "this is fine" are different
 answers and conflating them is how a scanner produces false confidence.
+
+## Generating a governability assessment
+
+```bash
+uvx kiff-scan assess .
+uvx kiff-scan assess . --format json --output kiff-report.json
+uvx kiff-scan assess . --format html --output kiff-report.html
+```
+
+`assess` runs the same analyzer as `scan`; it does not use a second or broader
+detector. It organizes the findings into a technical-governance report with a
+readiness result, hard blockers, evidence states, an action register, and a
+remediation plan. See [Assessment](./ASSESSMENT.md) for the rubric and claim
+boundary.
+
+An assessment exits 1 only for `NOT READY`, meaning a hard blocker was found.
+`CONDITIONAL` exits 0 so teams can adopt reporting before every evidence gap is
+closed. Usage errors remain exit 2.
 
 ## Reading a report
 
@@ -148,11 +167,19 @@ kiff-scan scan . --format json      # machine-readable
 kiff-scan scan . --format sarif     # GitHub Security tab
 kiff-scan scan . --format markdown  # PR comment
 kiff-scan scan . --output report.json
+
+kiff-scan assess . --format markdown
+kiff-scan assess . --format json --output kiff-report.json
+kiff-scan assess . --format html --output kiff-report.html
 ```
 
 JSON fields worth knowing: `governed`, `confidence`, `decision_evidence`,
 `state_dependent`, `annotation_mismatch`, `declared_annotations`,
 `in_test_code`, `counted`.
+
+Assessment JSON has its own versioned schema. Derived conclusions live under
+`conclusion`, `dimensions`, and `hard_blockers`; the scanner facts supporting
+them remain separate under `evidence`.
 
 ## Exit codes
 

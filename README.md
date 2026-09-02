@@ -20,6 +20,19 @@ uvx kiff-scan scan .
 No install, no account, no config. Zero dependencies, no network code, and it
 never executes the code it reads. All three are CI tests, not claims.
 
+Need to show what is governed, what is not, and why? Generate an evidence-backed
+assessment for an engineering or governance review:
+
+```bash
+uvx kiff-scan assess . --format html --output kiff-report.html
+```
+
+The assessment turns the same source evidence into a readiness result, hard
+blockers, a six-dimension governability scorecard, an action register, and a
+prioritized remediation plan. Missing evidence is marked `not evidenced` or
+`not assessable`; it is never converted into a pass. See
+[Agent governability assessment](./docs/ASSESSMENT.md).
+
 ## Output
 
 Run against [awslabs/mcp](https://github.com/awslabs/mcp)'s IAM server at
@@ -155,6 +168,7 @@ Detail in [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md).
 
 ```bash
 uvx kiff-scan scan .          # no install
+uvx kiff-scan assess .        # management-ready Markdown assessment
 pipx install kiff-scan        # or
 pip install kiff-scan
 ```
@@ -213,6 +227,8 @@ only fixed cases is a trophy cabinet.
 
 * [User guide](./docs/GUIDE.md). Reading a report, `explain`, CI, config,
   suppressions, exit codes.
+* [Assessment](./docs/ASSESSMENT.md). Readiness rules, evidence states, report
+  formats, and claim boundaries.
 * [Coverage](./docs/COVERAGE.md). Every registration shape and sink, supported
   and not.
 * [Threat model](./docs/THREAT_MODEL.md).

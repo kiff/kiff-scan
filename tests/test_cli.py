@@ -152,6 +152,31 @@ def test_output_flag_writes_a_file(tmp_path, capsys):
     assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
 
 
+def test_assess_writes_versioned_json_and_fails_on_hard_blockers(tmp_path, capsys):
+    out = tmp_path / "assessment.json"
+    assert main(["assess", UNGOVERNED, "--format", "json", "--output", str(out)]) == EXIT_FINDINGS
+    capsys.readouterr()
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["report_type"] == "kiff_agent_governability_assessment"
+    assert payload["conclusion"]["readiness"] == "not_ready"
+
+
+def test_assess_governed_code_is_conditional_and_exits_zero(capsys):
+    assert main(["assess", HOOKED]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "CONDITIONAL" in out
+    assert "not a compliance certification" in out
+
+
+def test_assess_writes_self_contained_html(tmp_path, capsys):
+    out = tmp_path / "assessment.html"
+    assert main(["assess", HOOKED, "--format", "html", "--output", str(out)]) == EXIT_OK
+    capsys.readouterr()
+    rendered = out.read_text(encoding="utf-8")
+    assert rendered.startswith("<!doctype html>")
+    assert "Governability scorecard" in rendered
+
+
 def test_show_unsupported_lists_files(tmp_path, capsys):
     (tmp_path / "agent.ts").write_text("const x = 1;\n", encoding="utf-8")
     main(["scan", str(tmp_path), "--show-unsupported"])

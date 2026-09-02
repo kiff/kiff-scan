@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `kiff-scan assess` generates an evidence-backed Agent Governability Assessment
+  in Markdown, versioned JSON, or self-contained HTML.
+- Deterministic readiness rules keep high-consequence undecided paths and
+  contradictory safety annotations as hard blockers, while unprovable
+  governance dimensions remain explicitly `not assessable`.
+- Reports include an executive summary, six-dimension scorecard, action
+  register, evidence paths, prioritized remediation, reproducibility metadata,
+  and an explicit non-certification boundary.
+
 ## [0.2.0] - 2026-09-02
 
 ### Changed — second audit pass
