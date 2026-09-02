@@ -41,6 +41,8 @@ def to_json(result: ScanResult, root: str = ".") -> str:
                 "consequence": f.consequence.label,
                 "severity": f.severity,
                 "state_dependent": f.state_dependent,
+            "annotation_mismatch": f.annotation_mismatch,
+            "declared_annotations": f.annotations,
                 "reason": f.reason,
                 "reachable_by": f.reachable_by,
                 "model_controlled_inputs": f.inputs,

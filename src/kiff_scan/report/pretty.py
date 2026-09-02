@@ -18,7 +18,11 @@ from ..model import DecisionEvidence, Finding, ScanResult
 
 __all__ = ["render", "render_explain"]
 
-_LIMITS = (
+#: Two footers, because one of them was a lie. A scan with no findings used to
+#: print "this scan established that a model-controlled parameter reaches a
+#: consequential call" -- the opposite of what had happened, on the screen most
+#: likely to be screenshotted.
+_LIMITS_FINDINGS = (
     "This scan established that a model-controlled parameter reaches a",
     "consequential call with no recognised decision on the analysed path.",
     "It did NOT establish that the action is externally reachable, that no",
@@ -27,6 +31,19 @@ _LIMITS = (
     "identified -- not that the code is safe.",
 )
 
+_LIMITS_CLEAN = (
+    "This scan found no supported path from a model-controlled parameter to a",
+    "recognised consequential call. That is NOT evidence the code is safe: it",
+    "means nothing matched the patterns this scanner supports. Tools reached",
+    "through unsupported registration shapes, sinks outside its vocabulary,",
+    "calls into other modules, and every non-Python file are all invisible to",
+    "it. See docs/COVERAGE.md for what is and is not analysed.",
+)
+
+
+def _limits(has_findings: bool) -> tuple[str, ...]:
+    return _LIMITS_FINDINGS if has_findings else _LIMITS_CLEAN
+
 
 def _rel(path: str, root: str) -> str:
     base = root if os.path.isdir(root) else os.path.dirname(os.path.abspath(root))
@@ -34,6 +51,20 @@ def _rel(path: str, root: str) -> str:
         return os.path.relpath(path, base or ".")
     except ValueError:  # pragma: no cover - different drives on Windows
         return path
+
+
+def _cwd_rel(path: str) -> str:
+    """Path as the user would type it from their current directory.
+
+    Absolute when the file is outside the tree they are standing in, because a
+    `../../..` chain is worse than an absolute path.
+    """
+    absolute = os.path.abspath(path)
+    try:
+        rel = os.path.relpath(absolute, os.getcwd())
+    except ValueError:  # pragma: no cover - different drives on Windows
+        return absolute
+    return absolute if rel.startswith("..") else rel
 
 
 def _plural(n: int, word: str) -> str:
@@ -167,16 +198,34 @@ def render(result: ScanResult, root: str) -> str:
         out.append(f"  {_plural(n, 'file')} could not be analysed and {verb} NOT counted as clean.")
         out.append("  Run with --show-unsupported to list them.")
 
+    mismatched = [f for f in result.findings if getattr(f, "annotation_mismatch", False)]
+    if mismatched:
+        out.append("")
+        out.append(f"  ANNOTATION MISMATCH ({len(mismatched)})")
+        out.append("")
+        out.append("  These tools declare themselves read-only and then reach a")
+        out.append("  consequential call. The contradiction is in the tool's own")
+        out.append("  metadata, not in this scanner's vocabulary.")
+        out.append("")
+        for f in mismatched:
+            out.append(f"    {_rel(f.file, root)}:{f.line}  {f.tool}()")
+            out.append(f"      declares:  readOnlyHint=True")
+            out.append(f"      but:       {f.reason}")
+        out.append("")
+
     out.append("")
     out.append("  What this scan did not establish:")
-    for line in _LIMITS:
+    for line in _limits(bool(result.findings)):
         out.append(f"    {line}")
     out.append("")
 
     if ungoverned:
         out.append("  Next:")
         first = _most_exposed(ungoverned)
-        out.append(f"    kiff-scan explain {_rel(first.file, root)}:{first.line}")
+        # Relative to the *working directory*, not the scan root: this line is
+        # meant to be copied, and a path relative to the root does not resolve
+        # from where the user is standing.
+        out.append(f"    kiff-scan explain {_cwd_rel(first.file)}:{first.line}")
         out.append("")
 
     return "\n".join(out)
@@ -217,7 +266,7 @@ def render_explain(finding: Finding, root: str) -> str:
         out.append("")
 
     out.append("  What this does not establish:")
-    for line in _LIMITS:
+    for line in _limits(True):
         out.append(f"    {line}")
     out.append("")
     return "\n".join(out)
