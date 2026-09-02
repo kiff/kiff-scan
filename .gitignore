@@ -14,3 +14,6 @@ report.html
 report.json
 .DS_Store
 bench/.cache/
+
+# Launch drafts kept locally, not repo content
+show-hn-*.md
