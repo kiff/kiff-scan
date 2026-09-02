@@ -3,6 +3,113 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-02
+
+### Changed — second audit pass
+
+- A constant, non-interpreter `argv[0]` with model-controlled arguments
+  (`subprocess.run(["say", text])`) is reported as a **fixed program** at
+  `low` severity rather than as a shell. Interpreters (`sh`, `python3`,
+  `osascript`, `crontab`, `docker`…) and `shell=True` remain `high`.
+- Findings in test, example, cookbook and docs paths (relative to the scan
+  root) are **set aside**: still scanned and listed, but excluded from the
+  totals, the "Most exposed" line and the exit code. `--include-tests` or
+  `"include_tests": true` counts them. JSON carries `in_test_code` and
+  `counted` per finding and `test_code_findings` in the summary.
+- A docstring summary only declares an action when the verb leads it (first
+  four words). "Start here if a user wants to run locally or deploy…" no
+  longer makes a containerisation helper a deployment finding.
+- `ToolExecutor`/`Executor` subclasses with `__call__` are reachable
+  (OpenHands), including generic bases (`ToolExecutor[Action, Observation]`).
+  This finds OpenHands' `WorkflowExecutor`, which `exec()`s a model-written
+  script.
+- An argv built in a local list literal (`cmd = ["rg", ...]; subprocess.run(cmd)`)
+  is resolved, so the program is known and fixed-program severity applies.
+- Methods on tool classes are named by their class in reports:
+  `ShellTool._run`, not `_run`.
+- The benchmark now includes four repositories where the scanner is **known to
+  miss** (cross-module sinks), so recall reads 0.65 rather than 1.00. `speak`
+  and `file_read` in Strands are relabelled as must-not-report-at-medium.
+- Lint: the tree passes `ruff check` and `ruff format --check` again.
+
+The pre-launch release. A full read of the scanner against thirteen public
+agent codebases found that its two loudest behaviours were both wrong: it
+reported innocent code as dangerous, and reported the canonical dangerous
+tools as clean. Everything here follows from that.
+
+### Fixed — precision
+
+- Execution detection is receiver-aware. `agent.run()`, `chain.run()` and
+  `client.call()` are delegation, not shell execution; a call now needs an
+  execution receiver (`subprocess`, `os`, `asyncio`, `pexpect`, `pty`) or an
+  explicit `shell=True`. On pydantic-ai's examples this alone removed every
+  finding, all of which were `agent.run()`.
+- `capture`, `refund`, `upgrade`, `downgrade` and `update_service` require
+  corroboration from the receiver or a parameter name. `rich`'s
+  `Console().capture()` is no longer money movement.
+- Identifiers are matched on whole semantic tokens rather than substrings, so
+  "drop" is a token of `drop_database` and is not a token of `select_dropdown`.
+- The function name outranks the docstring, only the docstring's first
+  sentence is consulted, a read-only name prefix (`get_`, `list_`, `check_`…)
+  vetoes a declared finding, and names containing `help`/`docs`/`guide` are
+  treated as informational.
+
+### Fixed — recall
+
+- `exec()` and `eval()` as builtins, the `os.exec*` family,
+  `asyncio.create_subprocess_*`, `pexpect.spawn` and `posix_spawn` are sinks.
+  A Python REPL and a PTY shell no longer scan clean.
+- Class-based tools are reachable: a `_run`/`_arun`/`run`/`execute`/`__call__`
+  method on a class deriving from a `Tool`/`BaseTool`/`Toolkit` base.
+- Registration without a decorator is recognised:
+  `StructuredTool.from_function(fn)`, `Tool(func=fn)`, `X.tool(...)(fn)`, and
+  module-level `TOOL_SPEC` declarations.
+- `@agent.tool_plain`, `@server.call_tool()` and `@kernel_function` are tool
+  decorators.
+- Generic `@task`/`@action`/`@component`/`@skill` only count when the module
+  imports an agent framework, so a Celery repo with no LLM in it stops
+  reporting an agent blast radius.
+
+### Fixed — evidence
+
+- A declared-confidence finding anchored its sink on the `def` line, so every
+  guard in the function body was reported as arriving "after the sink". That
+  was a false and checkable accusation about the claim this tool leads with.
+- Same-line ordering compares column offsets, so
+  `if authorize(x): delete(x)` is credited.
+- Framework-native human-in-the-loop metadata is decision evidence:
+  `requires_confirmation=True`, `needs_approval=True`,
+  `requires_user_input=True`, `external_execution=True`.
+- MCP `ToolAnnotations` are read. `readOnlyHint=True` on a genuine read
+  suppresses the finding; on a tool that reaches a destructive call it is
+  reported as an **annotation mismatch** in its own section.
+  `destructiveHint=True` surfaces the tool at `annotated` confidence.
+
+### Fixed — CLI and report
+
+- The `Next:` line the report prints now runs when copied. It was relative to
+  the scan root and failed from anywhere else.
+- A scan with no findings no longer claims it "established that a
+  model-controlled parameter reaches a consequential call".
+
+### Added
+
+- `bench/`: six public agent repositories pinned at exact commits, with
+  hand-labelled expected findings and a runner reporting precision and recall.
+  `python bench/run.py`.
+
+### Performance
+
+- Files are parsed once instead of twice, and modules with no
+  tool-registration token skip the detector passes. browser-use 9.1s → 6.7s.
+
+### Known limitations
+
+- Calls are followed within a module only. On multi-module MCP servers this is
+  the largest remaining source of false negatives.
+- `Agent(tools=[fn])` list registration and JSON-schema dispatch tables are not
+  yet resolved. See `docs/COVERAGE.md`.
+
 ## [0.1.1] - 2026-09-01
 
 ### Fixed

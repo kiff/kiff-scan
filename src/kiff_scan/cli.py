@@ -84,6 +84,14 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--show-unsupported", action="store_true", help="list files that could not be analysed"
     )
+    scan.add_argument(
+        "--include-tests",
+        action="store_true",
+        help=(
+            "count findings in test/example/cookbook code (default: listed but set aside "
+            "from the totals and the exit code)"
+        ),
+    )
 
     explain = sub.add_parser("explain", help="show the analysed path for one finding")
     explain.add_argument("location", help="FILE:LINE, as printed by scan")
@@ -96,6 +104,8 @@ def _effective_config(args: argparse.Namespace, root: str) -> Config:
     cfg = load_config(root, getattr(args, "config", None))
     cfg.guards.extend(getattr(args, "guard", []) or [])
     cfg.tool_decorators.extend(getattr(args, "tool_decorator", []) or [])
+    if getattr(args, "include_tests", False):
+        cfg.include_tests = True
     return cfg
 
 
@@ -152,6 +162,26 @@ def _parse_location(location: str) -> tuple[str, int]:
     return path, int(line)
 
 
+def _resolve_against_root(path: str, args: argparse.Namespace) -> str | None:
+    """Find `path` relative to the scan root or the current tree, or None."""
+    candidates = [getattr(args, "path", None) or ".", "."]
+    for base in candidates:
+        root = base if os.path.isdir(base) else os.path.dirname(os.path.abspath(base))
+        candidate = os.path.join(root or ".", path)
+        if os.path.isfile(candidate):
+            return candidate
+    # Last resort: a unique basename match under the current tree.
+    target = os.path.basename(path)
+    matches: list[str] = []
+    for dirpath, dirnames, filenames in os.walk("."):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        if target in filenames:
+            matches.append(os.path.join(dirpath, target))
+            if len(matches) > 1:
+                return None
+    return matches[0] if len(matches) == 1 else None
+
+
 def _cmd_explain(args: argparse.Namespace) -> int:
     try:
         path, line = _parse_location(args.location)
@@ -160,8 +190,15 @@ def _cmd_explain(args: argparse.Namespace) -> int:
         return EXIT_USAGE
 
     if not os.path.isfile(path):
-        print(f"kiff-scan: file not found: {path}", file=sys.stderr)
-        return EXIT_USAGE
+        # A path printed by a previous scan may be relative to the scan root
+        # rather than to where the user is standing. Retry against the
+        # configured root before giving up, so the report's own `Next:` line
+        # works wherever it is pasted.
+        resolved = _resolve_against_root(path, args)
+        if resolved is None:
+            print(f"kiff-scan: file not found: {path}", file=sys.stderr)
+            return EXIT_USAGE
+        path = resolved
 
     try:
         cfg = _effective_config(args, path)

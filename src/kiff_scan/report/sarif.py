@@ -49,7 +49,7 @@ def _rules() -> list[dict]:
                 "name": f"AgentReachable{cid.title().replace('_', '')}",
                 "shortDescription": {
                     "text": (
-                        f"{consequence.label} reachable by an agent with no " "decision on the path"
+                        f"{consequence.label} reachable by an agent with no decision on the path"
                     )
                 },
                 "fullDescription": {"text": f"{sd}{consequence.why}"},

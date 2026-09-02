@@ -45,6 +45,12 @@ class DecisionEvidence(str, Enum):
     #: genuine whole-module signal, unlike a stray call in one function.
     MODULE_HOOK = "module_hook"
 
+    #: The framework's own human-in-the-loop flag is set on the tool
+    #: decorator -- `requires_confirmation=True`, `needs_approval=True`. The
+    #: framework will not run the tool without a human, which is a decision
+    #: boundary expressed in the framework's vocabulary rather than ours.
+    FRAMEWORK_APPROVAL = "framework_approval"
+
     #: Nothing found on the analysed path.
     NONE = "none"
 
@@ -67,6 +73,7 @@ class Evidence:
             DecisionEvidence.CALL_BEFORE_SINK,
             DecisionEvidence.DECORATOR,
             DecisionEvidence.MODULE_HOOK,
+            DecisionEvidence.FRAMEWORK_APPROVAL,
         )
 
 
@@ -91,6 +98,20 @@ class Finding:
     confidence: str = "call"
     #: Resolved domain action name, when the codebase declares one.
     action: str = ""
+    #: The tool declares `readOnlyHint=True` and yet reaches a consequential
+    #: call. Reported separately: the tool's own metadata is the accuser.
+    annotation_mismatch: bool = False
+    #: MCP ToolAnnotations declared on the tool decorator, as written.
+    annotations: dict = field(default_factory=dict)
+    #: The execution sink runs a constant, non-interpreter program (`say`,
+    #: `git`, `ffmpeg`) whose *arguments* the model controls. A real
+    #: capability, but not a shell, so it is reported at low severity.
+    fixed_program: bool = False
+    #: The file lives under a test, example, cookbook or docs path relative to
+    #: the scan root. Reported separately and not counted unless asked, so the
+    #: first thing a reader sees is their product code rather than a helper
+    #: called `issue_refund` in a unit test.
+    in_test_code: bool = False
 
     @property
     def consequence(self) -> Consequence:
@@ -101,8 +122,12 @@ class Finding:
         sev = self.consequence.severity
         # A name/docstring inference is weaker proof than an observed call, so
         # it is never allowed to raise a build failure at "high".
-        if self.confidence == "declared" and sev == "high":
+        if self.confidence in ("declared", "annotated") and sev == "high":
             return "medium"
+        # A fixed program with model-controlled arguments is not a shell. The
+        # model chooses what `say` says, not what runs.
+        if self.fixed_program:
+            return "low"
         return sev
 
     @property
@@ -138,14 +163,32 @@ class ScanResult:
     unsupported: list[UnsupportedFile] = field(default_factory=list)
     #: True when a KIFF decision boundary was detected anywhere in the tree.
     kiff_present: bool = False
+    #: When False (the default), findings in test/example code are kept in
+    #: `findings` but excluded from `scored`, and so from every count, the
+    #: exit code and the "Most exposed" line.
+    include_tests: bool = False
+
+    @property
+    def scored(self) -> list[Finding]:
+        """Findings that count: product code, plus test code when asked."""
+        if self.include_tests:
+            return list(self.findings)
+        return [f for f in self.findings if not f.in_test_code]
+
+    @property
+    def test_code(self) -> list[Finding]:
+        """Findings set aside because they live in test/example code."""
+        if self.include_tests:
+            return []
+        return [f for f in self.findings if f.in_test_code]
 
     @property
     def ungoverned(self) -> list[Finding]:
-        return [f for f in self.findings if not f.governed]
+        return [f for f in self.scored if not f.governed]
 
     @property
     def governed(self) -> list[Finding]:
-        return [f for f in self.findings if f.governed]
+        return [f for f in self.scored if f.governed]
 
     def counts_by_severity(self) -> dict[str, int]:
         out = {"high": 0, "medium": 0, "low": 0}

@@ -59,6 +59,9 @@ class Config:
     exclude: list[str] = field(default_factory=list)
     #: Directory segment names to skip, added to DEFAULT_EXCLUDE_DIRS.
     exclude_dirs: list[str] = field(default_factory=list)
+    #: Count findings in test/example code. Off by default: they are still
+    #: scanned and listed, but set aside from the totals and the exit code.
+    include_tests: bool = False
 
     @property
     def all_exclude_dirs(self) -> frozenset[str]:
@@ -114,4 +117,5 @@ def load_config(root: str, explicit_path: str | None = None) -> Config:
         tool_decorators=_as_str_list(raw.get("tool_decorators"), "tool_decorators"),
         exclude=_as_str_list(raw.get("exclude"), "exclude"),
         exclude_dirs=_as_str_list(raw.get("exclude_dirs"), "exclude_dirs"),
+        include_tests=bool(raw.get("include_tests", False)),
     )

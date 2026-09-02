@@ -1,0 +1,8 @@
+{
+  "_method": "Read at the pinned commit. Every tool in this directory declares a human-in-the-loop boundary through agno's own decorator metadata, so the correct result is zero ungoverned findings and at least one *governed* finding carrying that evidence.",
+  "_history": "At 0.1.1 the whole human_in_the_loop/ folder was reported as ungoverned, because requires_confirmation=True was not recognised as a decision. The audit called this the single most quotable miss in the corpus.",
+  "true": [],
+  "false": [
+    {"id": "external_tool_execution.py::execute_shell_command", "why": "@tool(external_execution=True): agno hands execution to the developer's code rather than running it. That is a boundary, and reporting it as ungoverned is wrong."}
+  ]
+}

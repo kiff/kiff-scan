@@ -24,11 +24,13 @@ def to_json(result: ScanResult, root: str = ".") -> str:
         "root": root,
         "summary": {
             "files_analysed": result.files,
-            "capabilities": len(result.findings),
+            "capabilities": len(result.scored),
             "decision_found": len(result.governed),
             "review_required": len(result.ungoverned),
             "by_severity": result.counts_by_severity(),
             "unsupported_files": len(result.unsupported),
+            "test_code_findings": len(result.test_code),
+            "include_tests": result.include_tests,
             "kiff_present": result.kiff_present,
         },
         "findings": [
@@ -41,6 +43,8 @@ def to_json(result: ScanResult, root: str = ".") -> str:
                 "consequence": f.consequence.label,
                 "severity": f.severity,
                 "state_dependent": f.state_dependent,
+                "annotation_mismatch": f.annotation_mismatch,
+                "declared_annotations": f.annotations,
                 "reason": f.reason,
                 "reachable_by": f.reachable_by,
                 "model_controlled_inputs": f.inputs,
@@ -52,6 +56,9 @@ def to_json(result: ScanResult, root: str = ".") -> str:
                     "line": f.evidence.line,
                 },
                 "action": f.action,
+                "fixed_program": f.fixed_program,
+                "in_test_code": f.in_test_code,
+                "counted": not (f.in_test_code and not result.include_tests),
             }
             for f in result.findings
         ],
@@ -72,7 +79,7 @@ def to_markdown(result: ScanResult, root: str = ".") -> str:
     lines = [
         "## kiff-scan: agent blast radius",
         "",
-        f"- Consequential capabilities: **{len(result.findings)}**",
+        f"- Consequential capabilities: **{len(result.scored)}**",
         f"- Decision found on path: **{len(result.governed)}**",
         f"- Review required: **{len(result.ungoverned)}** "
         f"({counts['high']} high, {counts['medium']} medium, {counts['low']} low)",
@@ -80,6 +87,8 @@ def to_markdown(result: ScanResult, root: str = ".") -> str:
     ]
     if result.unsupported:
         lines.append(f"- Not analysed (never counted as clean): {len(result.unsupported)}")
+    if result.test_code:
+        lines.append(f"- In test/example code, set aside and not counted: {len(result.test_code)}")
     lines.append("")
 
     if result.ungoverned:

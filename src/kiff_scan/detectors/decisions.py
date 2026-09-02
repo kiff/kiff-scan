@@ -159,15 +159,20 @@ def _guard_decorator(fn: ast.AST) -> Evidence | None:
     return None
 
 
-def _guard_calls_in_body(fn: ast.AST, extra: frozenset[str]) -> list[tuple[int, str]]:
-    """(line, name) for each recognised guard call in the function body."""
+def _guard_calls_in_body(fn: ast.AST, extra: frozenset[str]) -> list[tuple[int, int, str]]:
+    """(line, col, name) for each recognised guard call in the function body.
+
+    The column matters: `if authorize(x): delete(x)` puts a guard and a sink on
+    the same line, and comparing lines alone reports the guard as arriving
+    after the action it plainly gates.
+    """
     recognised = GUARD_CALLS | extra
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, int, str]] = []
     for node in ast.walk(fn):
         if isinstance(node, ast.Call):
             name = _final_name(node)
             if name in recognised:
-                found.append((node.lineno, name))
+                found.append((node.lineno, getattr(node, "col_offset", 0), name))
     return sorted(found)
 
 
@@ -178,21 +183,34 @@ def decision_for(
     extra_guards: frozenset[str] = frozenset(),
     chain: list[str] | None = None,
     local_functions: dict[str, ast.AST] | None = None,
+    approval: tuple[str, int] | None = None,
+    sink_col: int = 0,
 ) -> Evidence:
     """Strongest decision evidence gating `sink_line` inside `fn`.
 
-    Precedence: a guard decorator, then a guard call before the sink, then a
-    guard inside the helper chain that reaches the sink, then a module-wide
-    hook, then a call after the sink (which does not gate it), then nothing.
+    Precedence: a guard decorator, then the framework's own approval flag, then
+    a guard call before the sink, then a guard inside the helper chain that
+    reaches the sink, then a module-wide hook, then a call after the sink
+    (which does not gate it), then nothing.
     """
     decorator = _guard_decorator(fn)
     if decorator is not None:
         return decorator
 
+    if approval is not None:
+        detail, line = approval
+        return Evidence(kind=DecisionEvidence.FRAMEWORK_APPROVAL, detail=detail, line=line)
+
     calls = _guard_calls_in_body(fn, extra_guards)
-    before = [(line, name) for line, name in calls if line < sink_line]
+    # `<=` with a column tiebreak, so a guard on the same line as the sink is
+    # credited when it lexically precedes it.
+    before = [
+        (line, col, name)
+        for line, col, name in calls
+        if line < sink_line or (line == sink_line and col < sink_col)
+    ]
     if before:
-        line, name = before[-1]
+        line, _col, name = before[-1]
         return Evidence(
             kind=DecisionEvidence.CALL_BEFORE_SINK,
             detail=f"{name}() before the sink",
@@ -214,7 +232,7 @@ def decision_for(
         return hook
 
     if calls:
-        line, name = calls[0]
+        line, _col, name = calls[0]
         return Evidence(
             kind=DecisionEvidence.CALL_AFTER_SINK,
             detail=f"{name}() appears at line {line}, after the sink",

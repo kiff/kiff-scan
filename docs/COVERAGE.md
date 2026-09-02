@@ -73,6 +73,13 @@ moment of execution rather than on the identity of the caller.
 | `call` | A recognised SDK call was found, in the function body or in a module-local helper it calls | Full severity |
 | `declared` | Classified from the function name and docstring only | Capped at `medium` |
 
+Two further modifiers apply to `call` findings:
+
+| Modifier | Meaning | Effect |
+|---|---|---|
+| fixed program | The execution sink runs a constant, non-interpreter `argv[0]` (`say`, `git`, `ffmpeg`) with model-controlled arguments and no `shell=True` | `low` — the model chooses the arguments, not the program. Interpreters (`sh`, `python3`, `osascript`, `crontab`, `docker`…) stay `high` |
+| test code | The file is under `tests/`, `test/`, `examples/`, `cookbook/`, `docs/`, `fixtures/`, or is `test_*.py`/`*_test.py`/`conftest.py`, relative to the scan root | Listed but set aside: excluded from totals, "Most exposed" and the exit code unless `--include-tests` |
+
 The weaker signal is kept because agent tool bodies are frequently thin wrappers
 that delegate to a service, and dropping them would report clean on an agent
 that can plainly drop a database. It is capped rather than trusted, so a
@@ -159,3 +166,41 @@ In scope: a supported-language sink it misses, a recognised guard it fails to
 honour, a finding on code with no model-controlled input on the path, or any
 case where it reports clean when it should not. Open an issue with a minimal
 reproducing file; accepted cases become permanent test fixtures.
+
+
+## Registration shapes (added after the pre-launch audit)
+
+Measured against the pinned repositories in `bench/`.
+
+| Shape | Example | Recognised |
+|---|---|---|
+| Decorator | `@mcp.tool()`, `@agent.tool`, `@function_tool` | yes |
+| pydantic-ai plain | `@agent.tool_plain` | yes |
+| Low-level MCP | `@server.call_tool()` | yes |
+| Semantic Kernel | `@kernel_function` | yes |
+| Class-based | `class X(BaseTool): def _run(...)` | yes (`_run`, `_arun`, `run`, `execute`, `__call__`); reported as `X._run` |
+| Executor | `class X(ToolExecutor[A, O]): def __call__(...)` (OpenHands) | yes — but the sink is usually in another module, see below |
+| Function registration | `StructuredTool.from_function(fn)`, `Tool(func=fn)` | yes |
+| Curried registration | `self.mcp.tool(name=...)(self.method)` | yes |
+| Module spec | `TOOL_SPEC = {"name": "shell"}` + `def shell(...)` | yes (Strands) |
+| Generic worker | `@app.task`, `@action`, `@component` | only when the module imports an agent framework |
+| List registration | `Agent(tools=[a, b])` | **no** — a plain function passed in a list is not yet resolved |
+| Schema dispatch | a JSON tool schema plus a dispatch table | **no** |
+
+The bench's six known misses (`bench/run.py`, recall 0.65) are all the same
+gap: the registration shape is recognised, the destructive call is one import
+away. Cross-module following within the scanned package is the next item.
+
+## Decision evidence recognised
+
+| Source | Example |
+|---|---|
+| Guard call before the sink | `authorize(...)` then `delete_db_instance(...)` |
+| Guard decorator | `@requires_approval` |
+| Guard inside the called helper | the check lives one hop away |
+| Module-level hook | `Agent(tool_hooks=[Guard(...)])` |
+| Framework confirmation | `requires_confirmation=True`, `needs_approval=True`, `requires_user_input=True`, `external_execution=True` |
+| MCP annotation | `ToolAnnotations(readOnlyHint=True)` on a tool with no contradicting call |
+
+`readOnlyHint=True` on a tool that *does* reach a destructive call is not
+evidence — it is reported as an annotation mismatch.

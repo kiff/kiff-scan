@@ -28,7 +28,37 @@ No install, no account, no config.
 
 ## The output
 
-Run against a sample SRE agent (`tests/fixtures/ungoverned_ops.py` in this repo):
+Run against [awslabs/mcp](https://github.com/awslabs/mcp)'s IAM server at
+`e9f2439` — a real MCP server with real boto3 calls, not a fixture:
+
+```
+kiff-scan · what can this agent do without a decision?
+
+  YOUR AGENT'S BLAST RADIUS
+
+  Consequential capabilities: 6
+    Decision found on path:   0
+    Review required:          6
+
+    Secrets / identity    6   add_user_to_group, attach_user_policy, create_access_key,
+                              delete_access_key, delete_user, put_user_policy
+
+  Most exposed: awslabs/iam_mcp_server/server.py:431  delete_user()
+    Reachable by:            @tool
+    Consequence:             Secrets / identity  (calls delete_access_key())
+    Severity:                high
+    Match confidence:        call
+    Decision on path:        none found on the analysed path
+    Model-controlled inputs: user_name, force, confirmed
+
+    State-dependent: an authorization check is necessary but NOT
+    sufficient here.
+```
+
+Six tools, six IAM mutations, no decision between the model's argument and the
+SDK call. Every one is a real `@mcp.tool` in that repository.
+
+And on a fixture built to exercise the report (`tests/fixtures/ungoverned_ops.py`):
 
 ```
 kiff-scan · what can this agent do without a decision?
@@ -228,14 +258,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kiff/kiff-scan@v0.1.1
+      - uses: kiff/kiff-scan@v0.2.0
 ```
 
 Posts a sticky pull request comment, uploads SARIF to your Security tab, and
 **does not fail the build by default**. Once you have triaged a baseline:
 
 ```yaml
-      - uses: kiff/kiff-scan@v0.1.1
+      - uses: kiff/kiff-scan@v0.2.0
         with:
           fail-on: high
 ```
@@ -285,9 +315,103 @@ injection, or any language other than Python. Decision detection uses **lexical
 precedence, not control flow**, so a guard inside `if not force:` is credited
 even though a caller can skip it; a guard is recognised **by name, not by
 behaviour**, so an `authorize()` that always returns `True` clears a finding; and
-calls are followed only **within a module**, so a destructive call one import away
-is missed. Every limitation is listed in
+calls are followed only **within a module** (up to four hops), so a destructive
+call one *import* away is missed — on multi-module MCP servers this is the
+largest remaining source of false negatives. Every limitation is listed in
 [docs/COVERAGE.md](./docs/COVERAGE.md), including the ones we have not fixed.
+
+## How accurate is it?
+
+On ten public agent repositories, pinned at exact commits, with hand-labelled
+expected findings. The bench scores what a user is asked to review: findings at
+`medium` or above, in product code. Repositories where the scanner is **known to
+miss** are included on purpose.
+
+| repo | files | reported | TP | FP | FN | precision | recall |
+|---|---|---|---|---|---|---|---|
+| strands-agents/tools | 72 | 4 | 4 | 0 | 0 | 1.00 | 1.00 |
+| pydantic-ai (examples) | 48 | 0 | 0 | 0 | 0 | – | – |
+| browser-use | 169 | 0 | 0 | 0 | 0 | – | – |
+| smolagents | 18 | 0 | 0 | 0 | 0 | – | – |
+| agno (human_in_the_loop) | 11 | 0 | 0 | 0 | 0 | – | – |
+| awslabs/mcp (iam-mcp-server) | 13 | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| awslabs/mcp (ecs-mcp-server) | 91 | 0 | 0 | 0 | **2** | – | 0.00 |
+| awslabs/mcp (eks-mcp-server) | 36 | 0 | 0 | 0 | **2** | – | 0.00 |
+| awslabs/mcp (aws-api-mcp-server) | 67 | 0 | 0 | 0 | **1** | – | 0.00 |
+| OpenHands/software-agent-sdk (tools) | 93 | 1 | 1 | 0 | **1** | 1.00 | 0.50 |
+| **total** | **618** | **11** | **11** | **0** | **6** | **1.00** | **0.65** |
+
+Reproduce with `python bench/run.py`. Labels are in `bench/expected/*.json`,
+each with a `why` naming the call that justifies it.
+
+**Read this honestly.** Precision is measured on eleven true findings, so 1.00
+means "no known false positive in the labelled set", not "always right".
+Recall is 0.65 because six labelled findings are not reached, and all six are
+the same gap: the destructive call lives **in another module** — ECS's
+`delete_stack` behind `api/delete.py`, EKS's Kubernetes calls behind
+`k8s_apis.py`, `call_aws` executing in `core/aws/service.py`, OpenHands'
+`Popen` behind a terminal factory. Cross-module following is the next thing
+to build, and this table is how you will know when it lands. Two Strands
+tools (`speak`, `file_read`) are reported at `low` — a fixed program with
+model-controlled arguments, not a shell — and are counted but not scored; so
+are OpenHands' `glob`/`grep` executors (`rg`) and LangChain's `grep_search`.
+
+Against the previous release on the same trees:
+
+| repo | 0.1.1 | now | what changed |
+|---|---|---|---|
+| strands-agents/tools | 12 | 4 + 2 low | 10 false positives removed; **both canonical dangerous tools now found** — the PTY shell reaching `os.execvp` and the REPL reaching `exec()` were previously missed entirely; `say` and `git` demoted to fixed-program, low |
+| pydantic-ai (full repo) | 10 | 0 + 7 in tests | every product finding was `agent.run()` matched as shell execution; the seven that remain are `issue_refund` helpers in unit tests, listed but set aside |
+| browser-use | 2 | 0 | `select_dropdown` matched because "drop" is a substring of "dropdown" |
+| agno (full repo) | 24 | 0 + 18 in cookbook | HITL examples now cleared by `requires_confirmation=True`; the rest are cookbook code, set aside |
+| awslabs/mcp (full repo) | 61 | 21 | ~40 docstring matches on read-only tools removed; glue `delete_table` and route53 record changes newly found through `mcp.tool(...)(fn)` registration |
+
+Fewer findings is only an improvement if the remaining ones are more correct.
+Here the count fell **and** the two tools the scanner most obviously should
+have caught started being caught.
+
+## What it will not flag
+
+Deliberately, with regression tests for each:
+
+- `agent.run()`, `chain.run()`, `client.call()` — delegation, not execution.
+  Execution requires an execution receiver (`subprocess`, `os`, `asyncio`,
+  `pexpect`, `pty`) or an explicit `shell=True`.
+- `Console().capture()` — rich's output buffer, not a payment capture.
+- `select_dropdown()` — identifiers are matched on whole tokens, so "drop" is a
+  token of `drop_database` and is not a token of `dropdown`.
+- `get_*`, `list_*`, `describe_*`, `check_*` — a read-only name vetoes a
+  *declared* finding, though an observed `delete_table()` in the body still
+  reports, because a read-only name in front of a destructive call is worth
+  surfacing rather than believing.
+- `@app.task` in a repo with no agent framework imported — that is a Celery
+  job, not a tool.
+- `subprocess.run(["say", text])` as a shell — a constant, non-interpreter
+  program with model-controlled arguments is reported at `low`, because the
+  model chooses what is said, not what runs. `["python3", "-c", code]`,
+  `["bash", ...]`, `["crontab", ...]` or `shell=True` stay `high`.
+- Findings under `tests/`, `examples/`, `cookbook/`, `docs/` as headline
+  results — they are scanned and listed, but set aside from the totals, the
+  "Most exposed" line and the exit code. `--include-tests` counts them.
+
+## When a tool contradicts itself
+
+A tool that declares `readOnlyHint=True` and then calls something destructive
+gets its own section, because the accusation comes from the author's own
+metadata rather than from this scanner's vocabulary:
+
+```
+  ANNOTATION MISMATCH (1)
+
+    warehouse.py:14  inspect_table()
+      declares:  readOnlyHint=True
+      but:       calls delete_table()
+```
+
+The same reading works in the other direction: `requires_confirmation=True`
+(agno), `needs_approval=True` (OpenAI Agents SDK), `external_execution=True`
+and MCP `ToolAnnotations(readOnlyHint=True)` are all treated as decision
+evidence, so a tool your framework already gates is not reported as ungoverned.
 
 ## Found a case where it is wrong?
 
