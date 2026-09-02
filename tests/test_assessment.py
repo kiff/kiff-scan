@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 from kiff_scan import EvidenceState, Readiness, assess, scan_path
 from kiff_scan.report.assessment import (
     assessment_to_html,
@@ -110,6 +112,11 @@ def test_markdown_contains_management_sections_and_claim_boundary():
     assert "not a compliance certification" in rendered
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows filenames cannot contain '<' or '>'. The escaping this asserts is "
+    "covered on every platform by test_html_escapes_hostile_target_path below.",
+)
 def test_html_is_self_contained_and_escapes_source_metadata(tmp_path):
     target = tmp_path / "agent<script>.py"
     target.write_text(
@@ -123,3 +130,28 @@ def test_html_is_self_contained_and_escapes_source_metadata(tmp_path):
     assert "agent&lt;script&gt;.py" in rendered
     assert "http://" not in rendered
     assert "https://" not in rendered
+
+
+def test_html_escapes_hostile_source_paths_cross_platform():
+    """Escaping must hold on every platform, including where the filesystem
+    refuses to create a hostile filename.
+
+    Finding.file is the untrusted-metadata channel the on-disk test above
+    exercises through a real filename. Windows cannot represent '<' in a
+    filename, so that test is skipped there and this one carries the assertion:
+    it scans a normally-named fixture, then substitutes the hostile value into
+    the scan result before rendering.
+    """
+    result = scan_path(UNGOVERNED)
+    assert result.findings, "fixture should produce findings to carry the payload"
+    hostile = "agent<script>alert('xss')</script>.py"
+    for finding in result.findings:
+        finding.file = hostile
+
+    rendered = assessment_to_html(
+        assess(result, hostile, generated_at=STAMP, repository_commit=COMMIT)
+    )
+
+    assert "<script>" not in rendered
+    assert "alert('xss')" not in rendered
+    assert "agent&lt;script&gt;" in rendered
