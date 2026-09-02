@@ -1,0 +1,9 @@
+{
+  "_method": "Read at the pinned commit: the directory contains exactly one @agent.tool_plain (realtime_voice.py) and no destructive SDK call, subprocess use, or exec anywhere. There is nothing here a scanner should report.",
+  "_history": "At kiff-scan 0.1.1 this directory produced 8 HIGH 'Shell / execution' findings, every one of them `agent.run()` -- sub-agent delegation matched because `run` was a sink name regardless of receiver.",
+  "true": [],
+  "false": [
+    {"id": "flight_booking.py::ask_specialist", "why": "agent.run() is delegation to a sub-agent, not shell execution."},
+    {"id": "medical_agent_delegation.py::ask_specialist", "why": "same: agent.run()."}
+  ]
+}

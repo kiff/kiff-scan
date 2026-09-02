@@ -25,6 +25,7 @@ __all__ = [
     "EXEC_CALLS",
     "NAME_HINTS",
     "READ_ONLY_PREFIXES",
+    "INFORMATIONAL_TOKENS",
     "GATED_SINK_CALLS",
     "EXEC_METHODS",
     "EXEC_RECEIVERS",
@@ -238,6 +239,17 @@ READ_ONLY_PREFIXES: frozenset[str] = frozenset(
 )
 
 
+#: Tokens that mark a tool as informational wherever they appear in the name.
+#: `deploy_serverless_app_help_tool` describes deployment; it does not deploy.
+#: Unlike the prefix veto these are checked anywhere in the identifier, because
+#: the giveaway word is usually at the end.
+INFORMATIONAL_TOKENS: frozenset[str] = frozenset(
+    {"help", "doc", "docs", "documentation", "guide", "guidance", "guideline",
+     "example", "examples", "tutorial", "reference", "info", "status", "readme",
+     "usage", "explain", "summary", "recommend", "recommendation", "advice"}
+)
+
+
 def tokenize_identifier(name: str) -> list[str]:
     """Semantic tokens of an identifier: snake_case and CamelCase both split.
 
@@ -409,6 +421,8 @@ def _sink_from_name(name: str, doc: str) -> tuple[str, str]:
     """
     name_tokens = tokenize_identifier(name)
     if name_tokens and name_tokens[0] in READ_ONLY_PREFIXES:
+        return "", ""
+    if set(name_tokens) & INFORMATIONAL_TOKENS:
         return "", ""
 
     token_set = set(name_tokens)

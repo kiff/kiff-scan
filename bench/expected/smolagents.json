@@ -1,0 +1,8 @@
+{
+  "_method": "Read at the pinned commit: the package's tools are search/visit/inspect helpers with no destructive SDK call.",
+  "_history": "At 0.1.1 this reported get_weather() as IDENTITY because its docstring mentioned an API key being a secret.",
+  "true": [],
+  "false": [
+    {"id": "default_tools.py::get_weather", "why": "a read tool whose docstring mentions a secret. Neither the name nor the body does anything to an identity."}
+  ]
+}

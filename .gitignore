@@ -13,3 +13,4 @@ htmlcov/
 report.html
 report.json
 .DS_Store
+bench/.cache/

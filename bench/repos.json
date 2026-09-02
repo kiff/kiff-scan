@@ -1,0 +1,47 @@
+{
+  "_comment": "Public agent repositories used to measure precision and recall. Commits are pinned so a number in the README refers to a specific tree that anyone can check out. Subdirs keep clone size and scan time reasonable while still covering the registration shapes each framework actually uses.",
+  "repos": [
+    {
+      "name": "strands-tools",
+      "url": "https://github.com/strands-agents/tools",
+      "commit": "c7c0c28ad9e450a3193e49d7f25b1435a2bd5d99",
+      "subdir": "src/strands_tools",
+      "why": "Canonical dangerous tools: a PTY shell reaching os.execvp, a Python REPL reaching exec(), and an AWS tool using dynamic dispatch."
+    },
+    {
+      "name": "pydantic-ai-examples",
+      "url": "https://github.com/pydantic/pydantic-ai",
+      "commit": "db5ded4673e4fc18e3db9faf96f2e72bc52ffa55",
+      "subdir": "examples/pydantic_ai_examples",
+      "why": "agent.run() delegation everywhere, plus @agent.tool_plain registration. The false-positive corpus."
+    },
+    {
+      "name": "browser-use",
+      "url": "https://github.com/browser-use/browser-use",
+      "commit": "564007d3d64cda0cccd29f37d70f8cfe9bebcd62",
+      "subdir": "browser_use",
+      "why": "select_dropdown / dropdown_options: substring matching on 'drop'."
+    },
+    {
+      "name": "smolagents",
+      "url": "https://github.com/huggingface/smolagents",
+      "commit": "30bb1161095dbae2271e6bc3cc4c219cc3897a57",
+      "subdir": "src/smolagents",
+      "why": "@tool decorated functions; docstrings mentioning secrets on read-only tools."
+    },
+    {
+      "name": "agno-hitl",
+      "url": "https://github.com/agno-agi/agno",
+      "commit": "3f1da53d580ae75a0d61c1620e9a96bf0f775b70",
+      "subdir": "cookbook/02_agents/10_human_in_the_loop",
+      "why": "Tools with requires_confirmation=True. Framework-native human-in-the-loop that was reported as ungoverned."
+    },
+    {
+      "name": "awslabs-mcp-iam",
+      "url": "https://github.com/awslabs/mcp",
+      "commit": "e9f2439c08814ca478a143712d97eac3b27a25d6",
+      "subdir": "src/iam-mcp-server",
+      "why": "Real boto3 IAM calls behind FastMCP tools: the true-positive corpus."
+    }
+  ]
+}

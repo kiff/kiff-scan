@@ -37,6 +37,8 @@ __all__ = [
     "module_imports",
     "imports_agent_framework",
     "registered_functions",
+    "tool_spec_names",
+    "TOOL_SPEC_NAMES",
     "is_tool_class",
     "approval_evidence",
     "tool_annotations",
@@ -135,6 +137,10 @@ APPROVAL_KWARGS: frozenset[str] = frozenset(
         "confirm",
         "human_in_the_loop",
         "requires_human_approval",
+        # agno: the agent pauses and hands execution to the developer's code
+        # rather than running the tool itself. That is a boundary, expressed
+        # as control transfer rather than as a confirmation prompt.
+        "external_execution",
     }
 )
 
@@ -146,6 +152,12 @@ ANNOTATION_HINTS: frozenset[str] = frozenset(
 #: Retained for compatibility: the union is what a caller asking "is this a
 #: tool decorator?" historically meant.
 TOOL_DECORATORS: frozenset[str] = STRONG_TOOL_DECORATORS | WEAK_TOOL_DECORATORS
+
+#: Module-level dicts that declare the module's own tool. Strands uses
+#: `TOOL_SPEC = {"name": "python_repl", ...}` alongside a module-level function
+#: of that name, and 20 of its 47 tool modules are written this way -- a whole
+#: framework's registration shape, invisible to decorator-only reachability.
+TOOL_SPEC_NAMES: frozenset[str] = frozenset({"TOOL_SPEC", "TOOLSPEC", "SPEC", "TOOL_DEFINITION"})
 
 #: Variable names that mark a dict literal as a tool -> action mapping.
 ACTION_MAP_NAMES: frozenset[str] = frozenset(
@@ -295,6 +307,31 @@ def registered_functions(tree: ast.AST) -> dict[str, str]:
     return out
 
 
+def tool_spec_names(tree: ast.AST) -> frozenset[str]:
+    """Function names declared by a module-level tool spec.
+
+    Deliberately narrow: the assignment target has to be a recognised spec
+    name and the dict has to carry a string `name`. A dict literal that merely
+    has a "name" key is not evidence of anything.
+    """
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if not (targets & TOOL_SPEC_NAMES) or not isinstance(node.value, ast.Dict):
+            continue
+        for key, value in zip(node.value.keys, node.value.values, strict=False):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "name"
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ):
+                out.add(value.value)
+    return frozenset(out)
+
+
 def is_tool_class(cls: ast.ClassDef) -> str:
     """The tool base this class derives from, or "" if it is not a tool.
 
@@ -370,6 +407,7 @@ def reachability_of(
     imports: frozenset[str] = frozenset(),
     registered: dict[str, str] | None = None,
     tool_base: str = "",
+    spec_names: frozenset[str] = frozenset(),
 ) -> str:
     """Describe how a model reaches this function, or "" if it cannot.
 
@@ -392,6 +430,9 @@ def reachability_of(
 
     if registered and fn_name in registered:
         return registered[fn_name]
+
+    if fn_name and fn_name in spec_names:
+        return "TOOL_SPEC declaration"
 
     # Weak decorators only count alongside an agent framework import. Without
     # one, `@app.task` is a Celery job and this is a backend repo.

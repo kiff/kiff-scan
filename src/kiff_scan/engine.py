@@ -95,6 +95,7 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
     module_functions = sinks.local_functions(tree)
     imports = reachability.module_imports(tree)
     registered = reachability.registered_functions(tree)
+    spec_names = reachability.tool_spec_names(tree)
 
     findings: list[Finding] = []
     for node, tool_base in _functions_with_class_context(tree):
@@ -105,6 +106,7 @@ def scan_source(source: str, path: str, config: Config | None = None) -> list[Fi
             imports=imports,
             registered=registered,
             tool_base=tool_base,
+            spec_names=spec_names,
         )
         if not route:
             continue

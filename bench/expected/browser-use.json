@@ -1,0 +1,9 @@
+{
+  "_method": "Read at the pinned commit: the only subprocess references are asyncio transport patching in __init__.py and a lazy import inside cli.py, neither of which is a model-reachable tool.",
+  "_history": "At 0.1.1 this reported select_dropdown() and dropdown_options() as DATA_LOSS, because 'drop' was matched as a substring of 'dropdown'.",
+  "true": [],
+  "false": [
+    {"id": "controller/service.py::select_dropdown_option", "why": "'drop' is a substring of 'dropdown', not a token of it. Selecting a UI option destroys nothing."},
+    {"id": "controller/service.py::get_dropdown_options", "why": "same, and the name is a read."}
+  ]
+}

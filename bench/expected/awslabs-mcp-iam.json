@@ -1,0 +1,12 @@
+{
+  "_method": "Labelled by reading src/iam-mcp-server/server.py at the pinned commit. Every entry is a FastMCP tool whose body makes the named boto3 IAM call directly.",
+  "true": [
+    {"id": "server.py::delete_user", "why": "calls delete_access_key() then delete_user(); removes an IAM principal."},
+    {"id": "server.py::attach_user_policy", "why": "calls attach_user_policy(); grants permissions."},
+    {"id": "server.py::create_access_key", "why": "calls create_access_key(); mints long-lived credentials."},
+    {"id": "server.py::delete_access_key", "why": "calls delete_access_key(); revokes credentials."},
+    {"id": "server.py::add_user_to_group", "why": "calls add_user_to_group(); grants group permissions."},
+    {"id": "server.py::put_user_policy", "why": "calls put_user_policy(); writes an inline permission policy."}
+  ],
+  "false": []
+}
