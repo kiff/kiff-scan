@@ -1,12 +1,19 @@
 # Agent governability assessment
 
-`kiff-scan assess` turns scanner evidence into a technical-governance report
+> **Renamed.** This command was `kiff-scan assess`. That name is still accepted
+> and behaves identically, but it prints a deprecation warning and will be
+> removed in a future release. The rename separates it from the *KIFF governance
+> audit* — a distinct, agentic workflow that executes code and attacks a system's
+> claimed guarantees. This command never executes the target, so it reports what
+> the source can prove and nothing more.
+
+`kiff-scan evidence` turns scanner evidence into a technical-governance report
 that can be reviewed by engineering, security, and AI governance teams.
 
 ```bash
-uvx kiff-scan assess .
-uvx kiff-scan assess . --format json --output kiff-report.json
-uvx kiff-scan assess . --format html --output kiff-report.html
+uvx kiff-scan evidence .
+uvx kiff-scan evidence . --format json --output kiff-report.json
+uvx kiff-scan evidence . --format html --output kiff-report.html
 ```
 
 It answers a narrower and more defensible question than "is this agent safe?":

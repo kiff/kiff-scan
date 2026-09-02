@@ -159,7 +159,7 @@ These are real and worth stating plainly:
   code, not prompts.
 - Non-Python source.
 
-The `assess` command does not expand this coverage. It reports these gaps as
+The `evidence` command does not expand this coverage. It reports these gaps as
 `not assessable` instead of treating them as passed checks. In particular, the
 assessment is not evidence of regulatory compliance, organizational governance,
 model quality, or production safety.

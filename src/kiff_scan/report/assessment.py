@@ -124,7 +124,7 @@ def assessment_to_json(assessment: GovernabilityAssessment) -> str:
 def assessment_to_markdown(assessment: GovernabilityAssessment) -> str:
     result = assessment.scan
     lines = [
-        "# Agent Governability Assessment",
+        "# Agent Governability Evidence",
         "",
         f"**Result: {assessment.readiness.label}**",
         "",
@@ -343,7 +343,7 @@ def assessment_to_html(assessment: GovernabilityAssessment) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Governability Assessment</title>
+<title>Agent Governability Evidence</title>
 <style>
 :root{{--ink:#171a1f;--muted:#5d6570;--line:#d9dde3;--paper:#fff;--wash:#f4f6f8;
 --red:#a62b2b;--amber:#8a5a00;--green:#206a44}}
@@ -386,7 +386,7 @@ table{{display:block;overflow-x:auto}}}}
 </head>
 <body><main>
 <div class="eyebrow">KIFF technical governance report</div>
-<h1>Agent Governability Assessment</h1>
+<h1>Agent Governability Evidence</h1>
 <div class="result {esc(assessment.readiness.value)}">{esc(assessment.readiness.label)}</div>
 <p>{esc(assessment.readiness_reason)}</p>
 <section class="metrics">

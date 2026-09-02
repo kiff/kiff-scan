@@ -102,20 +102,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--show-unsupported", action="store_true", help="list files that could not be analysed"
     )
 
-    assessment = sub.add_parser(
-        "assess", help="produce an evidence-backed agent governability assessment"
-    )
-    assessment.add_argument("path", nargs="?", default=".", help="file or directory (default: .)")
-    assessment.add_argument(
-        "--format",
-        choices=ASSESSMENT_FORMATS,
-        default="markdown",
-        help="assessment format (default: markdown)",
-    )
-    assessment.add_argument(
-        "--output", metavar="FILE", help="write the report to FILE instead of stdout"
-    )
-    _add_analysis_options(assessment)
+    # `evidence` reports what the source can prove about the agents in a
+    # repository. It is deliberately not called an audit: it never executes the
+    # target, so it cannot test whether a claimed guarantee actually holds. That
+    # is the job of the separate kiff-audit workflow, which consumes this
+    # command's JSON as one of its evidence inputs.
+    for name in ("evidence", "assess"):
+        deprecated = name == "assess"
+        parser_kwargs = {}
+        if not deprecated:
+            # The alias is intentionally omitted from the subcommand list: it
+            # still works, but nothing should learn it from the help output.
+            parser_kwargs["help"] = "report what the source can prove about agent governability"
+        assessment = sub.add_parser(
+            name,
+            **parser_kwargs,
+            description=(
+                "Deprecated alias for `kiff-scan evidence`. Use `evidence` instead."
+                if deprecated
+                else "Report what static analysis can prove about the agents in a "
+                "repository, and say plainly what it cannot."
+            ),
+        )
+        assessment.add_argument(
+            "path", nargs="?", default=".", help="file or directory (default: .)"
+        )
+        assessment.add_argument(
+            "--format",
+            choices=ASSESSMENT_FORMATS,
+            default="markdown",
+            help="report format (default: markdown)",
+        )
+        assessment.add_argument(
+            "--output", metavar="FILE", help="write the report to FILE instead of stdout"
+        )
+        _add_analysis_options(assessment)
 
     explain = sub.add_parser("explain", help="show the analysed path for one finding")
     explain.add_argument("location", help="FILE:LINE, as printed by scan")
@@ -274,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Allow `kiff-scan .` as shorthand for `kiff-scan scan .`, since scanning is
     # the overwhelmingly common case.
-    known = {"scan", "assess", "explain"}
+    known = {"scan", "evidence", "assess", "explain"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         argv = ["scan"] + argv
     elif not argv:
@@ -286,7 +307,13 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_explain(args)
     if args.command == "scan":
         return _cmd_scan(args)
-    if args.command == "assess":
+    if args.command in ("evidence", "assess"):
+        if args.command == "assess":
+            print(
+                "kiff-scan: `assess` is deprecated and will be removed in a future "
+                "release; use `kiff-scan evidence` instead.",
+                file=sys.stderr,
+            )
         return _cmd_assess(args)
 
     parser.print_help()

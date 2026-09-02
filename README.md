@@ -24,7 +24,7 @@ Need to show what is governed, what is not, and why? Generate an evidence-backed
 assessment for an engineering or governance review:
 
 ```bash
-uvx kiff-scan assess . --format html --output kiff-report.html
+uvx kiff-scan evidence . --format html --output kiff-report.html
 ```
 
 The assessment turns the same source evidence into a readiness result, hard
@@ -168,7 +168,7 @@ Detail in [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md).
 
 ```bash
 uvx kiff-scan scan .          # no install
-uvx kiff-scan assess .        # management-ready Markdown assessment
+uvx kiff-scan evidence .        # management-ready Markdown evidence report
 pipx install kiff-scan        # or
 pip install kiff-scan
 ```

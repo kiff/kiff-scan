@@ -37,12 +37,12 @@ answers and conflating them is how a scanner produces false confidence.
 ## Generating a governability assessment
 
 ```bash
-uvx kiff-scan assess .
-uvx kiff-scan assess . --format json --output kiff-report.json
-uvx kiff-scan assess . --format html --output kiff-report.html
+uvx kiff-scan evidence .
+uvx kiff-scan evidence . --format json --output kiff-report.json
+uvx kiff-scan evidence . --format html --output kiff-report.html
 ```
 
-`assess` runs the same analyzer as `scan`; it does not use a second or broader
+`evidence` runs the same analyzer as `scan`; it does not use a second or broader
 detector. It organizes the findings into a technical-governance report with a
 readiness result, hard blockers, evidence states, an action register, and a
 remediation plan. See [Assessment](./ASSESSMENT.md) for the rubric and claim
@@ -168,9 +168,9 @@ kiff-scan scan . --format sarif     # GitHub Security tab
 kiff-scan scan . --format markdown  # PR comment
 kiff-scan scan . --output report.json
 
-kiff-scan assess . --format markdown
-kiff-scan assess . --format json --output kiff-report.json
-kiff-scan assess . --format html --output kiff-report.html
+kiff-scan evidence . --format markdown
+kiff-scan evidence . --format json --output kiff-report.json
+kiff-scan evidence . --format html --output kiff-report.html
 ```
 
 JSON fields worth knowing: `governed`, `confidence`, `decision_evidence`,
