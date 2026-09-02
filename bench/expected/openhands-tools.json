@@ -1,0 +1,23 @@
+{
+  "_method": "Same method.",
+  "true": [
+    {
+      "id": "impl.py::TerminalExecutor.__call__",
+      "why": "Runs model-supplied shell commands in a PTY; subprocess.Popen lives in terminal/subprocess_terminal.py behind a factory. Cross-module: known miss."
+    },
+    {
+      "id": "impl.py::WorkflowExecutor.__call__",
+      "why": "execute_workflow_script() runs exec(compile(script, ...)) on a model-written workflow script. Found through the ToolExecutor/__call__ route."
+    }
+  ],
+  "false": [
+    {
+      "id": "impl.py::GlobExecutor.__call__",
+      "why": "_execute_with_ripgrep() runs a local `cmd = ['rg', ...]` list: fixed program, model-controlled pattern. Reported at low, which is correct."
+    },
+    {
+      "id": "impl.py::GrepExecutor.__call__",
+      "why": "Same shape as GlobExecutor: `rg` with a model-controlled pattern, low."
+    }
+  ]
+}

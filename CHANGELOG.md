@@ -5,6 +5,33 @@ All notable changes to this project are documented here. This project follows
 
 ## [0.2.0] - 2026-09-02
 
+### Changed — second audit pass
+
+- A constant, non-interpreter `argv[0]` with model-controlled arguments
+  (`subprocess.run(["say", text])`) is reported as a **fixed program** at
+  `low` severity rather than as a shell. Interpreters (`sh`, `python3`,
+  `osascript`, `crontab`, `docker`…) and `shell=True` remain `high`.
+- Findings in test, example, cookbook and docs paths (relative to the scan
+  root) are **set aside**: still scanned and listed, but excluded from the
+  totals, the "Most exposed" line and the exit code. `--include-tests` or
+  `"include_tests": true` counts them. JSON carries `in_test_code` and
+  `counted` per finding and `test_code_findings` in the summary.
+- A docstring summary only declares an action when the verb leads it (first
+  four words). "Start here if a user wants to run locally or deploy…" no
+  longer makes a containerisation helper a deployment finding.
+- `ToolExecutor`/`Executor` subclasses with `__call__` are reachable
+  (OpenHands), including generic bases (`ToolExecutor[Action, Observation]`).
+  This finds OpenHands' `WorkflowExecutor`, which `exec()`s a model-written
+  script.
+- An argv built in a local list literal (`cmd = ["rg", ...]; subprocess.run(cmd)`)
+  is resolved, so the program is known and fixed-program severity applies.
+- Methods on tool classes are named by their class in reports:
+  `ShellTool._run`, not `_run`.
+- The benchmark now includes four repositories where the scanner is **known to
+  miss** (cross-module sinks), so recall reads 0.65 rather than 1.00. `speak`
+  and `file_read` in Strands are relabelled as must-not-report-at-medium.
+- Lint: the tree passes `ruff check` and `ruff format --check` again.
+
 The pre-launch release. A full read of the scanner against thirteen public
 agent codebases found that its two loudest behaviours were both wrong: it
 reported innocent code as dangerous, and reported the canonical dangerous

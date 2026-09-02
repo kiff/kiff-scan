@@ -322,36 +322,49 @@ largest remaining source of false negatives. Every limitation is listed in
 
 ## How accurate is it?
 
-On six public agent repositories, pinned at exact commits, with hand-labelled
-expected findings:
+On ten public agent repositories, pinned at exact commits, with hand-labelled
+expected findings. The bench scores what a user is asked to review: findings at
+`medium` or above, in product code. Repositories where the scanner is **known to
+miss** are included on purpose.
 
 | repo | files | reported | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|---|---|
-| strands-agents/tools | 72 | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| strands-agents/tools | 72 | 4 | 4 | 0 | 0 | 1.00 | 1.00 |
 | pydantic-ai (examples) | 48 | 0 | 0 | 0 | 0 | – | – |
 | browser-use | 169 | 0 | 0 | 0 | 0 | – | – |
 | smolagents | 18 | 0 | 0 | 0 | 0 | – | – |
 | agno (human_in_the_loop) | 11 | 0 | 0 | 0 | 0 | – | – |
 | awslabs/mcp (iam-mcp-server) | 13 | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
-| **total** | **331** | **12** | **12** | **0** | **0** | **1.00** | **1.00** |
+| awslabs/mcp (ecs-mcp-server) | 91 | 0 | 0 | 0 | **2** | – | 0.00 |
+| awslabs/mcp (eks-mcp-server) | 36 | 0 | 0 | 0 | **2** | – | 0.00 |
+| awslabs/mcp (aws-api-mcp-server) | 67 | 0 | 0 | 0 | **1** | – | 0.00 |
+| OpenHands/software-agent-sdk (tools) | 93 | 1 | 1 | 0 | **1** | 1.00 | 0.50 |
+| **total** | **618** | **11** | **11** | **0** | **6** | **1.00** | **0.65** |
 
 Reproduce with `python bench/run.py`. Labels are in `bench/expected/*.json`,
 each with a `why` naming the call that justifies it.
 
-**Read this honestly.** The labelled set is small — twelve true findings across
-six repositories — so 1.00 means "no known false positive or false negative in
-the labelled set", not "this scanner is always right". Four of the six repos
-correctly report *nothing*, which is a real result but does not exercise
-precision. The number that matters more is the comparison against the previous
-release on the same trees:
+**Read this honestly.** Precision is measured on eleven true findings, so 1.00
+means "no known false positive in the labelled set", not "always right".
+Recall is 0.65 because six labelled findings are not reached, and all six are
+the same gap: the destructive call lives **in another module** — ECS's
+`delete_stack` behind `api/delete.py`, EKS's Kubernetes calls behind
+`k8s_apis.py`, `call_aws` executing in `core/aws/service.py`, OpenHands'
+`Popen` behind a terminal factory. Cross-module following is the next thing
+to build, and this table is how you will know when it lands. Two Strands
+tools (`speak`, `file_read`) are reported at `low` — a fixed program with
+model-controlled arguments, not a shell — and are counted but not scored; so
+are OpenHands' `glob`/`grep` executors (`rg`) and LangChain's `grep_search`.
+
+Against the previous release on the same trees:
 
 | repo | 0.1.1 | now | what changed |
 |---|---|---|---|
-| strands-agents/tools | 12 | 6 | 10 false positives removed; **both canonical dangerous tools now found** — the PTY shell reaching `os.execvp` and the REPL reaching `exec()` were previously missed entirely |
-| pydantic-ai | 3 | 0 | every finding was `agent.run()` matched as shell execution |
+| strands-agents/tools | 12 | 4 + 2 low | 10 false positives removed; **both canonical dangerous tools now found** — the PTY shell reaching `os.execvp` and the REPL reaching `exec()` were previously missed entirely; `say` and `git` demoted to fixed-program, low |
+| pydantic-ai (full repo) | 10 | 0 + 7 in tests | every product finding was `agent.run()` matched as shell execution; the seven that remain are `issue_refund` helpers in unit tests, listed but set aside |
 | browser-use | 2 | 0 | `select_dropdown` matched because "drop" is a substring of "dropdown" |
-| agno (HITL) | 1 | 0 | `@tool(external_execution=True)` is now recognised as a decision |
-| awslabs/mcp (IAM) | 6 | 6 | unchanged: these were correct before and still are |
+| agno (full repo) | 24 | 0 + 18 in cookbook | HITL examples now cleared by `requires_confirmation=True`; the rest are cookbook code, set aside |
+| awslabs/mcp (full repo) | 61 | 21 | ~40 docstring matches on read-only tools removed; glue `delete_table` and route53 record changes newly found through `mcp.tool(...)(fn)` registration |
 
 Fewer findings is only an improvement if the remaining ones are more correct.
 Here the count fell **and** the two tools the scanner most obviously should
@@ -373,6 +386,13 @@ Deliberately, with regression tests for each:
   surfacing rather than believing.
 - `@app.task` in a repo with no agent framework imported — that is a Celery
   job, not a tool.
+- `subprocess.run(["say", text])` as a shell — a constant, non-interpreter
+  program with model-controlled arguments is reported at `low`, because the
+  model chooses what is said, not what runs. `["python3", "-c", code]`,
+  `["bash", ...]`, `["crontab", ...]` or `shell=True` stay `high`.
+- Findings under `tests/`, `examples/`, `cookbook/`, `docs/` as headline
+  results — they are scanned and listed, but set aside from the totals, the
+  "Most exposed" line and the exit code. `--include-tests` counts them.
 
 ## When a tool contradicts itself
 

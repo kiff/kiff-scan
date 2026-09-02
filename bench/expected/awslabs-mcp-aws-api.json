@@ -1,0 +1,15 @@
+{
+  "_method": "Same method.",
+  "true": [
+    {
+      "id": "server.py::call_aws",
+      "why": "Executes model-supplied AWS CLI commands via core/aws/service.py. destructiveHint=not READ_OPERATIONS_ONLY_MODE is not a literal, so the annotation route does not apply either. Known miss."
+    }
+  ],
+  "false": [
+    {
+      "id": "server.py::suggest_aws_commands",
+      "why": "readOnlyHint=True and read-only in fact."
+    }
+  ]
+}

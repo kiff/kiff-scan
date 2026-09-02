@@ -32,6 +32,7 @@ __all__ = [
     "OS_EXEC_CALLS",
     "CODE_EXEC_BUILTINS",
     "MAX_CALL_DEPTH",
+    "INTERPRETERS",
     "tokenize_identifier",
     "classify_function",
     "local_functions",
@@ -125,6 +126,54 @@ SHELL_ARGV: dict[str, str] = {
     "gcloud": "IDENTITY",
     "rm": "DATA_LOSS",
 }
+
+#: Programs whose arguments are themselves commands or code. Handing one of
+#: these a model-controlled argument is arbitrary execution. Any *other*
+#: constant argv[0] -- `say`, `git`, `ffmpeg` -- is a fixed program whose
+#: arguments the model controls: still execution reachability, but not the
+#: same claim, and reported at low severity rather than as a shell.
+INTERPRETERS: frozenset[str] = frozenset(
+    {
+        "sh",
+        "bash",
+        "zsh",
+        "dash",
+        "fish",
+        "ksh",
+        "csh",
+        "tcsh",
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "pwsh",
+        "python",
+        "python3",
+        "python2",
+        "node",
+        "ruby",
+        "perl",
+        "php",
+        "lua",
+        "Rscript",
+        "osascript",
+        "ssh",
+        "sudo",
+        "su",
+        "doas",
+        "env",
+        "xargs",
+        "eval",
+        "exec",
+        "docker",
+        "podman",
+        "nsenter",
+        "chroot",
+        "crontab",
+        "at",
+        "nohup",
+        "setsid",
+    }
+)
 
 #: Method names that hand a command to the operating system *when the receiver
 #: is an execution API*. `run` and `call` are the two most common method names
@@ -244,10 +293,33 @@ READ_ONLY_PREFIXES: frozenset[str] = frozenset(
 #: Unlike the prefix veto these are checked anywhere in the identifier, because
 #: the giveaway word is usually at the end.
 INFORMATIONAL_TOKENS: frozenset[str] = frozenset(
-    {"help", "doc", "docs", "documentation", "guide", "guidance", "guideline",
-     "example", "examples", "tutorial", "reference", "info", "status", "readme",
-     "usage", "explain", "summary", "recommend", "recommendation", "advice"}
+    {
+        "help",
+        "doc",
+        "docs",
+        "documentation",
+        "guide",
+        "guidance",
+        "guideline",
+        "example",
+        "examples",
+        "tutorial",
+        "reference",
+        "info",
+        "status",
+        "readme",
+        "usage",
+        "explain",
+        "summary",
+        "recommend",
+        "recommendation",
+        "advice",
+    }
 )
+
+
+#: How many leading words of a docstring summary may carry the declared verb.
+SUMMARY_VERB_WINDOW = 4
 
 
 def tokenize_identifier(name: str) -> list[str]:
@@ -289,13 +361,41 @@ def _final_name(call: ast.Call) -> str:
     return ""
 
 
-def _shell_token(call: ast.Call) -> str:
+def _argv_literal(fn: ast.AST | None, name: str) -> ast.List | ast.Tuple | None:
+    """The list literal a local `cmd = [...]` variable was assigned, if unique.
+
+    `cmd = ["rg", "--files", path]; subprocess.run(cmd)` is the common way to
+    build an argv, and without resolving it the program is unknown and the
+    call is reported as a shell. One unambiguous assignment in the same
+    function is resolved; anything else stays unknown.
+    """
+    if fn is None:
+        return None
+    found: list[ast.List | ast.Tuple] = []
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.List | ast.Tuple):
+            if any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+                found.append(node.value)
+        elif (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == name
+        ):
+            return None  # extended later: be conservative and treat as unknown
+    return found[0] if len(found) == 1 else None
+
+
+def _shell_token(call: ast.Call, fn: ast.AST | None = None) -> str:
     """First shell token of a subprocess-style call, if statically known."""
     for arg in call.args:
         if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
             parts = arg.value.strip().split()
             return parts[0] if parts else ""
-        if isinstance(arg, ast.List) and arg.elts:
+        if isinstance(arg, ast.Name):
+            arg = _argv_literal(fn, arg.id)
+            if arg is None:
+                return ""
+        if isinstance(arg, ast.List | ast.Tuple) and arg.elts:
             first = arg.elts[0]
             if isinstance(first, ast.Constant) and isinstance(first.value, str):
                 return first.value
@@ -385,30 +485,76 @@ def _gated_sink(call: ast.Call, name: str, params: frozenset[str]) -> tuple[str,
     return None
 
 
-def _sink_from_body(fn: ast.AST, params: frozenset[str] = frozenset()) -> tuple[str, str, int, int]:
-    """First recognised sink call: (category, reason, line). Line 0 if none."""
+def _is_fixed_program(call: ast.Call, token: str, fn: ast.AST | None = None) -> bool:
+    """A constant argv[0] that is not an interpreter, with no `shell=True`.
+
+    `subprocess.run(["say", text])` lets the model choose what is said, not
+    what runs. That is a real capability and it is reported -- but as a fixed
+    program with model-controlled arguments, not as a shell.
+    """
+    if not token or _has_shell_true(call):
+        return False
+    base = token.rsplit("/", 1)[-1]
+    if token in INTERPRETERS or base in INTERPRETERS or base in SHELL_ARGV:
+        return False
+    # A bare string command ("say hello") is parsed by a shell only with
+    # shell=True; as an argv list the program is the literal first element.
+    first = call.args[0] if call.args else None
+    if isinstance(first, ast.Name):
+        first = _argv_literal(fn, first.id)
+    return isinstance(first, ast.List | ast.Tuple)
+
+
+def _sink_from_body(
+    fn: ast.AST, params: frozenset[str] = frozenset()
+) -> tuple[str, str, int, int, bool]:
+    """First recognised sink call: (category, reason, line, col, fixed_program).
+
+    Line 0 if none. `fixed_program` is True when the execution sink runs a
+    constant, non-interpreter program whose arguments the model controls.
+    """
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
             continue
         name = _final_name(node)
 
         if name in SINK_CALLS:
-            return SINK_CALLS[name], f"calls {name}()", node.lineno, node.col_offset
+            return SINK_CALLS[name], f"calls {name}()", node.lineno, node.col_offset, False
 
         gated = _gated_sink(node, name, params)
         if gated is not None:
-            return gated[0], gated[1], node.lineno, node.col_offset
+            return gated[0], gated[1], node.lineno, node.col_offset, False
 
         execed = _exec_sink(node, name)
         if execed is not None:
-            token = _shell_token(node)
+            token = _shell_token(node, fn)
             if token in SHELL_ARGV:
-                return SHELL_ARGV[token], f"shells out to {token}", node.lineno, node.col_offset
+                return (
+                    SHELL_ARGV[token],
+                    f"shells out to {token}",
+                    node.lineno,
+                    node.col_offset,
+                    False,
+                )
+            if _is_fixed_program(node, token, fn):
+                return (
+                    execed[0],
+                    f"runs the fixed program {token} with model-controlled arguments",
+                    node.lineno,
+                    node.col_offset,
+                    True,
+                )
             if token:
-                return execed[0], f"{execed[1]} running {token}", node.lineno, node.col_offset
-            return execed[0], execed[1], node.lineno, node.col_offset
+                return (
+                    execed[0],
+                    f"{execed[1]} running {token}",
+                    node.lineno,
+                    node.col_offset,
+                    False,
+                )
+            return execed[0], execed[1], node.lineno, node.col_offset, False
 
-    return "", "", 0, 0
+    return "", "", 0, 0, False
 
 
 def _sink_from_name(name: str, doc: str) -> tuple[str, str]:
@@ -431,12 +577,18 @@ def _sink_from_name(name: str, doc: str) -> tuple[str, str]:
             if keyword in token_set:
                 return category, f"declared action ({keyword} in the name)"
 
-    doc_tokens = set()
+    # A tool summary is imperative: "Deploy the release", "Drop a search
+    # index". The verb sits at the front. A keyword deep in the sentence --
+    # "Start here if a user wants to run locally or deploy to the cloud" --
+    # is describing context, not declaring the action, and crediting it is
+    # how a containerisation helper became a deployment finding.
+    doc_tokens: list[str] = []
     for word in re.split(r"[^A-Za-z0-9_]+", _first_sentence(doc)):
-        doc_tokens.update(tokenize_identifier(word))
+        doc_tokens.extend(tokenize_identifier(word))
+    leading = set(doc_tokens[:SUMMARY_VERB_WINDOW])
     for keywords, category in NAME_HINTS:
         for keyword in keywords:
-            if keyword in doc_tokens:
+            if keyword in leading:
                 return category, f"declared action ({keyword} in the summary)"
 
     return "", ""
@@ -464,7 +616,7 @@ def _sink_via_local_calls(
     depth: int,
     seen: frozenset[str],
     params: frozenset[str] = frozenset(),
-) -> tuple[str, str, int, list[str]]:
+) -> tuple[str, str, int, list[str], bool]:
     """Follow calls to module-local functions looking for a sink.
 
     Returns (category, reason, line_in_this_function, chain). `line_in_this_
@@ -473,7 +625,7 @@ def _sink_via_local_calls(
     call does gate it.
     """
     if depth <= 0:
-        return "", "", 0, []
+        return "", "", 0, [], False
 
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
@@ -484,17 +636,17 @@ def _sink_via_local_calls(
 
         callee = locals_[name]
 
-        category, reason, _line, _col = _sink_from_body(callee, params)
+        category, reason, _line, _col, fixed = _sink_from_body(callee, params)
         if category:
-            return category, f"calls {name}() which {reason}", node.lineno, [name]
+            return category, f"calls {name}() which {reason}", node.lineno, [name], fixed
 
-        category, reason, _line, chain = _sink_via_local_calls(
+        category, reason, _line, chain, fixed = _sink_via_local_calls(
             callee, locals_, depth - 1, seen | {name}, params
         )
         if category:
-            return category, f"calls {name}() which {reason}", node.lineno, [name, *chain]
+            return category, f"calls {name}() which {reason}", node.lineno, [name, *chain], fixed
 
-    return "", "", 0, []
+    return "", "", 0, [], False
 
 
 def guard_calls_in_chain(
@@ -522,23 +674,25 @@ def classify_function(
     fn: ast.AST,
     locals_: dict[str, ast.AST] | None = None,
     params: frozenset[str] = frozenset(),
-) -> tuple[str, str, str, int, list[str], int]:
+) -> tuple[str, str, str, int, list[str], int, bool]:
     """Classify a function's consequence.
 
-    Returns (category, reason, confidence, sink_line, chain, sink_col). Category is "" when
-    the function is not a recognised consequential action. `chain` names the
-    module-local helpers traversed to reach the sink, empty for a direct call.
+    Returns (category, reason, confidence, sink_line, chain, sink_col,
+    fixed_program). Category is "" when the function is not a recognised
+    consequential action. `chain` names the module-local helpers traversed to
+    reach the sink, empty for a direct call. `fixed_program` marks an execution
+    sink whose argv[0] is a constant non-interpreter.
     """
-    category, reason, line, col = _sink_from_body(fn, params)
+    category, reason, line, col, fixed = _sink_from_body(fn, params)
     if category:
-        return category, reason, "call", line, [], col
+        return category, reason, "call", line, [], col, fixed
 
     if locals_:
-        category, reason, line, chain = _sink_via_local_calls(
+        category, reason, line, chain, fixed = _sink_via_local_calls(
             fn, locals_, MAX_CALL_DEPTH, frozenset({getattr(fn, "name", "")}), params
         )
         if category:
-            return category, reason, "call", line, chain, 0
+            return category, reason, "call", line, chain, 0, fixed
 
     name = getattr(fn, "name", "")
     doc = ast.get_docstring(fn) if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) else ""
@@ -550,6 +704,6 @@ def classify_function(
         # the old behaviour, which anchored on the `def` line and so reported
         # every guard in the body as arriving "after the sink".
         end = getattr(fn, "end_lineno", None) or getattr(fn, "lineno", 0)
-        return category, reason, "declared", end + 1, [], 0
+        return category, reason, "declared", end + 1, [], 0, False
 
-    return "", "", "", 0, [], 0
+    return "", "", "", 0, [], 0, False

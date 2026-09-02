@@ -103,7 +103,7 @@ CONSEQUENCES: Final[dict[str, Consequence]] = dict(
             "Schema / migration",
             "high",
             True,
-            "A migration is safe against one schema version and destructive " "against another.",
+            "A migration is safe against one schema version and destructive against another.",
         ),
         _c(
             "MONEY",

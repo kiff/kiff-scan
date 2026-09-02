@@ -41,7 +41,7 @@ def _load(path: str) -> dict:
 
 def ensure_clone(repo: dict) -> str | None:
     """Shallow-clone at the pinned commit. Returns the path to scan."""
-    dest = os.path.join(CACHE, repo["name"])
+    dest = os.path.join(CACHE, repo.get("clone") or repo["name"])
     if not os.path.isdir(os.path.join(dest, ".git")):
         os.makedirs(dest, exist_ok=True)
         cmds = [
@@ -64,6 +64,13 @@ def key(finding) -> str:
     return f"{os.path.basename(finding.file)}::{finding.tool}"
 
 
+#: The bench scores what a user is asked to review: findings at the CLI's
+#: default threshold (medium) or above, in product code. Low-severity findings
+#: -- a fixed program with model-controlled arguments -- are counted but not
+#: scored, and findings set aside as test/example code are not scored either.
+SCORED_SEVERITIES = ("medium", "high")
+
+
 def evaluate(repo: dict, path: str) -> dict:
     expected_path = os.path.join(HERE, "expected", f"{repo['name']}.json")
     labels = _load(expected_path) if os.path.isfile(expected_path) else {"true": [], "false": []}
@@ -72,7 +79,8 @@ def evaluate(repo: dict, path: str) -> dict:
     result = scan_path(path)
     elapsed = time.time() - started
 
-    reported = {key(f) for f in result.ungoverned}
+    reported = {key(f) for f in result.ungoverned if f.severity in SCORED_SEVERITIES}
+    low = {key(f) for f in result.ungoverned if f.severity not in SCORED_SEVERITIES}
     should_find = {item["id"] for item in labels.get("true", [])}
     should_not = {item["id"] for item in labels.get("false", [])}
 
@@ -96,10 +104,12 @@ def evaluate(repo: dict, path: str) -> dict:
         "fp": len(fp),
         "fn": len(fn),
         "unlabelled": len(unlabelled),
+        "low": len(low),
+        "test_code": len(result.test_code),
         "precision": precision,
         "recall": recall,
         "seconds": round(elapsed, 2),
-        "detail": {"tp": tp, "fp": fp, "fn": fn, "unlabelled": unlabelled},
+        "detail": {"tp": tp, "fp": fp, "fn": fn, "unlabelled": unlabelled, "low": sorted(low)},
     }
 
 
@@ -144,14 +154,17 @@ def main() -> int:
         return 1
 
     print()
-    header = f"{'repo':<24} {'files':>6} {'rep':>5} {'TP':>4} {'FP':>4} {'FN':>4} {'unlab':>6} {'prec':>6} {'rec':>6} {'time':>7}"
+    header = (
+        f"{'repo':<24} {'files':>6} {'rep':>5} {'TP':>4} {'FP':>4} {'FN':>4} {'unlab':>6} "
+        f"{'low':>4} {'test':>5} {'prec':>6} {'rec':>6} {'time':>7}"
+    )
     print(header)
     print("-" * len(header))
     for r in rows:
         print(
             f"{r['repo']:<24} {r['files']:>6} {r['reported']:>5} {r['tp']:>4} {r['fp']:>4} "
-            f"{r['fn']:>4} {r['unlabelled']:>6} {_fmt(r['precision']):>6} "
-            f"{_fmt(r['recall']):>6} {r['seconds']:>6}s"
+            f"{r['fn']:>4} {r['unlabelled']:>6} {r['low']:>4} {r['test_code']:>5} "
+            f"{_fmt(r['precision']):>6} {_fmt(r['recall']):>6} {r['seconds']:>6}s"
         )
 
     tp = sum(r["tp"] for r in rows)
@@ -163,11 +176,18 @@ def main() -> int:
     print("-" * len(header))
     print(
         f"{'TOTAL':<24} {sum(r['files'] for r in rows):>6} {sum(r['reported'] for r in rows):>5} "
-        f"{tp:>4} {fp:>4} {fn:>4} {unlab:>6} {_fmt(precision):>6} {_fmt(recall):>6} "
+        f"{tp:>4} {fp:>4} {fn:>4} {unlab:>6} {sum(r['low'] for r in rows):>4} "
+        f"{sum(r['test_code'] for r in rows):>5} {_fmt(precision):>6} {_fmt(recall):>6} "
         f"{sum(r['seconds'] for r in rows):>6.2f}s"
     )
     print()
     print(f"  {unlab} reported finding(s) are unlabelled and scored as neither.")
+    print(
+        "  Scored: medium/high findings in product code. `low` and `test` are counted, not scored."
+    )
+    if fn:
+        print(f"  {fn} labelled finding(s) are NOT reached. Recall below 1.00 is deliberate;")
+        print("  each is a known miss described in bench/repos.json.")
     print("  Labels: bench/expected/*.json. Disagreements are issues, not defects in the number.")
 
     if args.verbose:

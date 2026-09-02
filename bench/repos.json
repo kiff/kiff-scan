@@ -1,5 +1,5 @@
 {
-  "_comment": "Public agent repositories used to measure precision and recall. Commits are pinned so a number in the README refers to a specific tree that anyone can check out. Subdirs keep clone size and scan time reasonable while still covering the registration shapes each framework actually uses.",
+  "_comment": "Public agent repositories used to measure precision and recall. Commits are pinned so a number in the README refers to a specific tree that anyone can check out. Subdirs keep clone size and scan time reasonable while still covering the registration shapes each framework actually uses. Entries with a `clone` key share one checkout. Repositories where the scanner is KNOWN to miss are included on purpose: recall below 1.00 is the honest number.",
   "repos": [
     {
       "name": "strands-tools",
@@ -41,7 +41,39 @@
       "url": "https://github.com/awslabs/mcp",
       "commit": "e9f2439c08814ca478a143712d97eac3b27a25d6",
       "subdir": "src/iam-mcp-server",
-      "why": "Real boto3 IAM calls behind FastMCP tools: the true-positive corpus."
+      "why": "Real boto3 IAM calls behind FastMCP tools: the true-positive corpus.",
+      "clone": "awslabs-mcp"
+    },
+    {
+      "name": "awslabs-mcp-ecs",
+      "url": "https://github.com/awslabs/mcp",
+      "commit": "e9f2439c08814ca478a143712d97eac3b27a25d6",
+      "clone": "awslabs-mcp",
+      "subdir": "src/ecs-mcp-server",
+      "why": "FastMCP tools whose destructive call lives one import away (modules/delete.py -> api/delete.py -> cloudformation.delete_stack). The cross-module gap, labelled as a known miss."
+    },
+    {
+      "name": "awslabs-mcp-eks",
+      "url": "https://github.com/awslabs/mcp",
+      "commit": "e9f2439c08814ca478a143712d97eac3b27a25d6",
+      "clone": "awslabs-mcp",
+      "subdir": "src/eks-mcp-server",
+      "why": "Tools registered as self.mcp.tool(name=...)(self.method) on a handler class, with the Kubernetes calls in another module. Registration is recognised; the sink is not reached."
+    },
+    {
+      "name": "awslabs-mcp-aws-api",
+      "url": "https://github.com/awslabs/mcp",
+      "commit": "e9f2439c08814ca478a143712d97eac3b27a25d6",
+      "clone": "awslabs-mcp",
+      "subdir": "src/aws-api-mcp-server",
+      "why": "call_aws executes arbitrary AWS CLI commands. destructiveHint is a runtime expression, not a literal, and the execution lives in core/aws/service.py. The most consequential tool in the corpus, and a known miss."
+    },
+    {
+      "name": "openhands-tools",
+      "url": "https://github.com/OpenHands/software-agent-sdk",
+      "commit": "94fca578b720df758b9bbf8a2639511b303c78e6",
+      "subdir": "openhands-tools/openhands/tools",
+      "why": "A coding agent whose terminal tool is a ToolExecutor subclass with __call__; the Popen lives in terminal/subprocess_terminal.py. Reachability is recognised, the sink is cross-module: a known miss."
     }
   ]
 }

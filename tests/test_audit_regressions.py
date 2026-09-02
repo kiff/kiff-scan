@@ -7,6 +7,7 @@ tests rather than left to manual verification.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -81,11 +82,7 @@ def test_read_only_tools_are_not_flagged_from_incidental_words():
 
 def test_negatives_are_completely_clean():
     """The whole negative corpus, minus the Celery module, reports nothing."""
-    findings = [
-        f
-        for f in scan_path(NEGATIVES).findings
-        if not f.file.endswith("celery_tasks.py")
-    ]
+    findings = [f for f in scan_path(NEGATIVES).findings if not f.file.endswith("celery_tasks.py")]
     assert findings == []
 
 
@@ -123,14 +120,18 @@ def test_asyncio_subprocess_and_pexpect_are_execution():
 
 
 def test_subprocess_with_shell_true_is_execution():
-    assert _tools(os.path.join(POSITIVES, "exec_tools.py"))["run_subprocess"].category == "EXECUTION"
+    assert (
+        _tools(os.path.join(POSITIVES, "exec_tools.py"))["run_subprocess"].category == "EXECUTION"
+    )
 
 
 def test_class_based_tools_are_reachable():
     """LangChain and CrewAI tools are classes; their action lives in `_run`."""
     found = _tools(os.path.join(POSITIVES, "class_tools.py"))
-    assert "_run" in found
-    assert "_arun" in found
+    # Methods are named by their class: `ShellTool._run`, never a bare `_run`.
+    assert any(name.endswith("._run") for name in found)
+    assert any(name.endswith("._arun") for name in found)
+    assert not any(name in ("_run", "_arun") for name in found)
     assert any("subclass" in f.reachable_by for f in found.values())
 
 
@@ -249,3 +250,159 @@ def test_clean_scan_does_not_claim_it_established_a_path():
 def test_scan_with_findings_keeps_the_established_wording():
     out = _run("scan", "tests/fixtures/ungoverned_ops.py").stdout
     assert "This scan established that" in out
+
+
+# ---------------------------------------------------------------------------
+# Follow-ups from the second audit pass.
+# ---------------------------------------------------------------------------
+
+SEVERITY = os.path.join(FIXTURES, "severity")
+LAYOUT = os.path.join(FIXTURES, "layout")
+
+
+def test_fixed_program_is_low_and_interpreters_are_high():
+    """`subprocess.run(["say", text])` is not a shell. An interpreter is."""
+    found = _tools(os.path.join(SEVERITY, "fixed_program.py"))
+    assert found["speak"].severity == "low" and found["speak"].fixed_program
+    assert found["git_log"].severity == "low" and found["git_log"].fixed_program
+    assert "fixed program say" in found["speak"].reason
+    assert found["find_files"].severity == "low" and "rg" in found["find_files"].reason
+    assert found["run_named"].severity == "high"
+    for name in ("run_script", "run_shell", "run_anything", "schedule"):
+        assert found[name].severity == "high", name
+        assert not found[name].fixed_program, name
+
+
+def test_fixed_program_does_not_fail_the_default_threshold():
+    from kiff_scan.cli import main
+
+    rc = main(["scan", os.path.join(SEVERITY, "fixed_program.py"), "--fail-on", "high"])
+    assert rc == 1  # the interpreters still fail it
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(
+            [
+                "scan",
+                os.path.join(SEVERITY, "fixed_program.py"),
+                "--format",
+                "json",
+                "--fail-on",
+                "none",
+            ]
+        )
+    payload = json.loads(buf.getvalue())
+    sev = {f["tool"]: f["severity"] for f in payload["findings"]}
+    assert sev["speak"] == "low" and sev["run_shell"] == "high"
+
+
+def test_test_code_is_set_aside_by_default():
+    """A helper called `issue_refund` in tests/ must not headline the report."""
+    from kiff_scan.engine import scan_path
+
+    result = scan_path(LAYOUT)
+    assert {f.tool for f in result.findings} == {"drop_database", "issue_refund"}
+    assert [f.tool for f in result.scored] == ["drop_database"]
+    assert [f.tool for f in result.test_code] == ["issue_refund"]
+    assert result.counts_by_severity()["high"] == 1
+
+
+def test_include_tests_counts_them():
+    from kiff_scan.config import Config
+    from kiff_scan.engine import scan_path
+
+    result = scan_path(LAYOUT, Config(include_tests=True))
+    assert {f.tool for f in result.scored} == {"drop_database", "issue_refund"}
+    assert result.test_code == []
+    assert result.counts_by_severity()["high"] == 2
+
+
+def test_include_tests_flag_changes_exit_code_and_report():
+    import io
+    from contextlib import redirect_stdout
+
+    from kiff_scan.cli import main
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["scan", LAYOUT, "--fail-on", "none"])
+    text = buf.getvalue()
+    assert "1 finding in test/example code, set aside and not counted" in text
+    assert "--include-tests" in text
+    assert "Consequential capabilities: 1" in text
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["scan", LAYOUT, "--fail-on", "none", "--include-tests"])
+    assert "Consequential capabilities: 2" in buf.getvalue()
+
+
+def test_scanning_a_test_file_directly_counts_it():
+    """The user pointed at it on purpose: relative to the root it is `x.py`."""
+    from kiff_scan.engine import scan_path
+
+    result = scan_path(os.path.join(LAYOUT, "tests", "test_tools.py"))
+    assert [f.tool for f in result.scored] == ["issue_refund"]
+
+
+def test_is_test_code_paths():
+    from kiff_scan.engine import is_test_code
+
+    assert is_test_code("tests/unit/test_x.py")
+    assert is_test_code("examples/demo.py")
+    assert is_test_code("cookbook/agents/basic.py")
+    assert is_test_code("src/pkg/conftest.py")
+    assert is_test_code("src/pkg/x_test.py")
+    assert not is_test_code("src/pkg/testing_tools.py")  # segment match, not substring
+    assert not is_test_code("src/contest/x.py")
+    assert not is_test_code("x.py")
+
+
+def test_json_marks_test_code_and_counted():
+    import io
+    from contextlib import redirect_stdout
+
+    from kiff_scan.cli import main
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["scan", LAYOUT, "--format", "json", "--fail-on", "none"])
+    payload = json.loads(buf.getvalue())
+    assert payload["summary"]["capabilities"] == 1
+    assert payload["summary"]["test_code_findings"] == 1
+    by_tool = {f["tool"]: f for f in payload["findings"]}
+    assert by_tool["issue_refund"]["in_test_code"] and not by_tool["issue_refund"]["counted"]
+    assert by_tool["drop_database"]["counted"]
+
+
+def test_executor_subclass_with_generic_base_is_reachable():
+    """`class TerminalExecutor(ToolExecutor[A, O])` with `__call__` (OpenHands)."""
+    found = _tools(os.path.join(POSITIVES, "executor_tools.py"))
+    assert "TerminalExecutor.__call__" in found
+    f = found["TerminalExecutor.__call__"]
+    assert f.category == "EXECUTION" and "subclass" in f.reachable_by
+
+
+def test_summary_verb_must_lead_the_docstring():
+    """'Start here if a user wants to ... deploy' is context, not a declaration."""
+    from kiff_scan.engine import scan_source
+
+    src = '''
+def tool(fn):
+    return fn
+
+@tool
+def containerize_app(app_path: str):
+    """Start here if a user wants to run locally or deploy an app to the cloud."""
+    return {}
+
+@tool
+def release(service: str):
+    """Deploy the service to production."""
+    return {}
+'''
+    names = {f.tool: f for f in scan_source(src, "x.py")}
+    assert "containerize_app" not in names
+    assert names["release"].category == "DEPLOYMENT"

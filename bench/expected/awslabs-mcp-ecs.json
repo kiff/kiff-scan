@@ -1,0 +1,19 @@
+{
+  "_method": "Labelled by reading the source at the pinned commit. `true` = must be reported at medium severity or above; `false` = must not be. A `known_miss` note marks a labelled true finding the scanner does not currently reach, so recall is measured honestly rather than against what it happens to find.",
+  "true": [
+    {
+      "id": "delete.py::mcp_delete_ecs_infrastructure",
+      "why": "api/delete.py delete_infrastructure() calls cloudformation.delete_stack() on the ECS and ECR stacks. Cross-module: known miss."
+    },
+    {
+      "id": "express.py::mcp_delete_app",
+      "why": "api/express.py deletes the app's CloudFormation stacks (cfn_client.delete_stack). Cross-module: known miss."
+    }
+  ],
+  "false": [
+    {
+      "id": "containerize.py::mcp_containerize_app",
+      "why": "Generates Dockerfile and build guidance; deploys nothing. The word 'deploy' in its summary is descriptive."
+    }
+  ]
+}

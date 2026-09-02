@@ -1,12 +1,31 @@
 {
-  "_method": "Labelled by reading the source at the pinned commit. Each entry names the specific call that justifies it. `true` means the scanner should report it; `false` means reporting it is a false positive.",
+  "_method": "Labelled by reading the source at the pinned commit. `true` = must be reported at medium severity or above; `false` = must not be. Each entry names the specific call that justifies it.",
   "true": [
-    {"id": "shell.py::shell", "why": "execute_with_pty() reaches os.execvp('/bin/sh', ...) with a model-controlled command. The canonical PTY shell tool."},
-    {"id": "python_repl.py::python_repl", "why": "exec(code, namespace) on a model-supplied `code` string. The canonical REPL tool."},
-    {"id": "cron.py::cron", "why": "_read_crontab() calls subprocess.run(['crontab', ...]); the tool schedules arbitrary commands."},
-    {"id": "use_computer.py::use_computer", "why": "focus_application() calls subprocess.run(['osascript', ...]) with model-influenced input."},
-    {"id": "speak.py::speak", "why": "subprocess.run(['say', text]) with model-controlled text. argv[0] is constant, so this is execution reachability rather than command injection -- reported because the claim is 'reaches execution with no decision', which is true."},
-    {"id": "file_read.py::file_read", "why": "time_machine_view() calls subprocess.check_output(['git', ...]). Same shape as speak: constant argv[0], model-influenced arguments."}
+    {
+      "id": "shell.py::shell",
+      "why": "execute_with_pty() reaches os.execvp('/bin/sh', ...) with a model-controlled command. The canonical PTY shell tool."
+    },
+    {
+      "id": "python_repl.py::python_repl",
+      "why": "exec(code, namespace) on a model-supplied `code` string. The canonical REPL tool."
+    },
+    {
+      "id": "cron.py::cron",
+      "why": "_read_crontab() calls subprocess.run(['crontab', ...]); the tool schedules arbitrary commands."
+    },
+    {
+      "id": "use_computer.py::use_computer",
+      "why": "focus_application() calls subprocess.run(['osascript', ...]) with model-influenced input."
+    }
   ],
-  "false": []
+  "false": [
+    {
+      "id": "speak.py::speak",
+      "why": "subprocess.run(['say', text]): a fixed program with model-controlled arguments. The model chooses what is said, not what runs. Reported at low severity, which is correct; reporting it as a shell would be a false positive."
+    },
+    {
+      "id": "file_read.py::file_read",
+      "why": "time_machine_view() runs subprocess.check_output(['git', ...]) with a path argument. Same shape as speak: fixed program, model-controlled arguments, low severity."
+    }
+  ]
 }

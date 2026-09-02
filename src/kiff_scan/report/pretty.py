@@ -112,14 +112,14 @@ def render(result: ScanResult, root: str) -> str:
     out.append("")
     out.append("  YOUR AGENT'S BLAST RADIUS")
     out.append("")
-    out.append(f"  Consequential capabilities: {len(result.findings)}")
+    out.append(f"  Consequential capabilities: {len(result.scored)}")
     out.append(f"    Decision found on path:   {len(governed)}")
     out.append(f"    Review required:          {len(ungoverned)}")
     out.append("")
 
     if ungoverned:
         out.append(
-            f"  Your agent can reach {_plural(len(ungoverned), 'consequential action')} " "with no"
+            f"  Your agent can reach {_plural(len(ungoverned), 'consequential action')} with no"
         )
         out.append("  recognised decision on the path.")
         out.append("")
@@ -180,13 +180,13 @@ def render(result: ScanResult, root: str) -> str:
             out.append("    " + ", ".join(state_dep))
             out.append("")
 
-    if not result.findings:
+    if not result.scored:
         out.append("  No agent-reachable consequential actions found in the analysed path.")
         out.append("")
 
     counts = result.counts_by_severity()
     out.append(
-        f"  {_plural(len(result.findings), 'finding')} in "
+        f"  {_plural(len(result.scored), 'finding')} in "
         f"{_plural(result.files, 'file')}"
         f"  (review required: {counts['high']} high, {counts['medium']} medium, "
         f"{counts['low']} low)"
@@ -198,7 +198,18 @@ def render(result: ScanResult, root: str) -> str:
         out.append(f"  {_plural(n, 'file')} could not be analysed and {verb} NOT counted as clean.")
         out.append("  Run with --show-unsupported to list them.")
 
-    mismatched = [f for f in result.findings if getattr(f, "annotation_mismatch", False)]
+    set_aside = result.test_code
+    if set_aside:
+        n = len(set_aside)
+        out.append("")
+        out.append(f"  {_plural(n, 'finding')} in test/example code, set aside and not counted:")
+        for f in sorted(set_aside, key=lambda f: (f.file, f.line))[:8]:
+            out.append(f"    {_rel(f.file, root)}:{f.line}  {f.tool}()  {f.consequence.label}")
+        if n > 8:
+            out.append(f"    ... and {n - 8} more")
+        out.append("  Pass --include-tests to count them.")
+
+    mismatched = [f for f in result.scored if getattr(f, "annotation_mismatch", False)]
     if mismatched:
         out.append("")
         out.append(f"  ANNOTATION MISMATCH ({len(mismatched)})")
@@ -209,13 +220,13 @@ def render(result: ScanResult, root: str) -> str:
         out.append("")
         for f in mismatched:
             out.append(f"    {_rel(f.file, root)}:{f.line}  {f.tool}()")
-            out.append(f"      declares:  readOnlyHint=True")
+            out.append("      declares:  readOnlyHint=True")
             out.append(f"      but:       {f.reason}")
         out.append("")
 
     out.append("")
     out.append("  What this scan did not establish:")
-    for line in _limits(bool(result.findings)):
+    for line in _limits(bool(result.scored)):
         out.append(f"    {line}")
     out.append("")
 

@@ -73,6 +73,13 @@ moment of execution rather than on the identity of the caller.
 | `call` | A recognised SDK call was found, in the function body or in a module-local helper it calls | Full severity |
 | `declared` | Classified from the function name and docstring only | Capped at `medium` |
 
+Two further modifiers apply to `call` findings:
+
+| Modifier | Meaning | Effect |
+|---|---|---|
+| fixed program | The execution sink runs a constant, non-interpreter `argv[0]` (`say`, `git`, `ffmpeg`) with model-controlled arguments and no `shell=True` | `low` — the model chooses the arguments, not the program. Interpreters (`sh`, `python3`, `osascript`, `crontab`, `docker`…) stay `high` |
+| test code | The file is under `tests/`, `test/`, `examples/`, `cookbook/`, `docs/`, `fixtures/`, or is `test_*.py`/`*_test.py`/`conftest.py`, relative to the scan root | Listed but set aside: excluded from totals, "Most exposed" and the exit code unless `--include-tests` |
+
 The weaker signal is kept because agent tool bodies are frequently thin wrappers
 that delegate to a service, and dropping them would report clean on an agent
 that can plainly drop a database. It is capped rather than trusted, so a
@@ -171,13 +178,18 @@ Measured against the pinned repositories in `bench/`.
 | pydantic-ai plain | `@agent.tool_plain` | yes |
 | Low-level MCP | `@server.call_tool()` | yes |
 | Semantic Kernel | `@kernel_function` | yes |
-| Class-based | `class X(BaseTool): def _run(...)` | yes (`_run`, `_arun`, `run`, `execute`, `__call__`) |
+| Class-based | `class X(BaseTool): def _run(...)` | yes (`_run`, `_arun`, `run`, `execute`, `__call__`); reported as `X._run` |
+| Executor | `class X(ToolExecutor[A, O]): def __call__(...)` (OpenHands) | yes — but the sink is usually in another module, see below |
 | Function registration | `StructuredTool.from_function(fn)`, `Tool(func=fn)` | yes |
 | Curried registration | `self.mcp.tool(name=...)(self.method)` | yes |
 | Module spec | `TOOL_SPEC = {"name": "shell"}` + `def shell(...)` | yes (Strands) |
 | Generic worker | `@app.task`, `@action`, `@component` | only when the module imports an agent framework |
 | List registration | `Agent(tools=[a, b])` | **no** — a plain function passed in a list is not yet resolved |
 | Schema dispatch | a JSON tool schema plus a dispatch table | **no** |
+
+The bench's six known misses (`bench/run.py`, recall 0.65) are all the same
+gap: the registration shape is recognised, the destructive call is one import
+away. Cross-module following within the scanned package is the next item.
 
 ## Decision evidence recognised
 

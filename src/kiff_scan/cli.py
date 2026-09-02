@@ -84,6 +84,14 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--show-unsupported", action="store_true", help="list files that could not be analysed"
     )
+    scan.add_argument(
+        "--include-tests",
+        action="store_true",
+        help=(
+            "count findings in test/example/cookbook code (default: listed but set aside "
+            "from the totals and the exit code)"
+        ),
+    )
 
     explain = sub.add_parser("explain", help="show the analysed path for one finding")
     explain.add_argument("location", help="FILE:LINE, as printed by scan")
@@ -96,6 +104,8 @@ def _effective_config(args: argparse.Namespace, root: str) -> Config:
     cfg = load_config(root, getattr(args, "config", None))
     cfg.guards.extend(getattr(args, "guard", []) or [])
     cfg.tool_decorators.extend(getattr(args, "tool_decorator", []) or [])
+    if getattr(args, "include_tests", False):
+        cfg.include_tests = True
     return cfg
 
 

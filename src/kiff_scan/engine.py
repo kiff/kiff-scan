@@ -20,7 +20,7 @@ from .config import Config
 from .detectors import decisions, reachability, sinks
 from .model import Finding, ScanResult, UnsupportedFile
 
-__all__ = ["scan_path", "scan_file", "scan_source", "SUPPORTED_SUFFIXES"]
+__all__ = ["scan_path", "scan_file", "scan_source", "is_test_code", "SUPPORTED_SUFFIXES"]
 
 #: Only Python is analysed. Anything else is reported as unsupported rather
 #: than counted as clean.
@@ -86,29 +86,70 @@ def _signature_params(fn: ast.AST) -> list[str]:
 
 def _functions_with_class_context(
     tree: ast.AST,
-) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str]]:
-    """Every function in the module, paired with its tool base class if any.
+) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, str]]:
+    """Every function in the module, with (tool base, enclosing class name).
 
     Collected in one traversal. A method's reachability depends on the class it
     is defined in -- `_run` is only a tool entry point on a Tool subclass --
-    and that context is lost by a flat `ast.walk`.
+    and that context is lost by a flat `ast.walk`. The class name is kept so a
+    finding reads `ShellTool._run` rather than a bare `_run`.
     """
-    out: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str]] = []
+    out: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, str]] = []
 
-    def visit(node: ast.AST, tool_base: str) -> None:
+    def visit(node: ast.AST, tool_base: str, class_name: str) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.ClassDef):
-                visit(child, reachability.is_tool_class(child))
+                visit(child, reachability.is_tool_class(child), child.name)
             elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-                out.append((child, tool_base))
+                out.append((child, tool_base, class_name))
                 # Nested defs are helpers, not tool entry points, but they may
                 # still contain classes; keep walking without the base.
-                visit(child, "")
+                visit(child, "", "")
             else:
-                visit(child, tool_base)
+                visit(child, tool_base, class_name)
 
-    visit(tree, "")
+    visit(tree, "", "")
     return out
+
+
+#: Path segments (relative to the scan root) that mark test, example and
+#: documentation code. Findings there are real -- a `@tool` in a test file is
+#: reachable by whatever agent the test builds -- but they are not the
+#: product, so they are set aside rather than headlined.
+TEST_CODE_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "test",
+        "tests",
+        "testing",
+        "fixtures",
+        "example",
+        "examples",
+        "sample",
+        "samples",
+        "demo",
+        "demos",
+        "cookbook",
+        "cookbooks",
+        "docs",
+        "doc",
+        "benchmark",
+        "benchmarks",
+    }
+)
+
+
+def is_test_code(rel_path: str) -> bool:
+    """Whether `rel_path` (relative to the scan root) is test/example code.
+
+    Judged on the path *below* the root only. Scanning `tests/fixtures/x.py`
+    directly yields a relative path of `x.py`, which is product code as far as
+    that scan is concerned -- the user pointed at it on purpose.
+    """
+    parts = rel_path.replace(os.sep, "/").split("/")
+    name = parts[-1]
+    if any(p in TEST_CODE_SEGMENTS for p in parts[:-1]):
+        return True
+    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
 
 
 def scan_source(
@@ -135,7 +176,7 @@ def scan_source(
     spec_names = reachability.tool_spec_names(tree)
 
     findings: list[Finding] = []
-    for node, tool_base in _functions_with_class_context(tree):
+    for node, tool_base, class_name in _functions_with_class_context(tree):
         route = reachability.reachability_of(
             node,
             action_map,
@@ -149,7 +190,7 @@ def scan_source(
             continue
 
         params = _signature_params(node)
-        category, reason, confidence, sink_line, chain, sink_col = sinks.classify_function(
+        category, reason, confidence, sink_line, chain, sink_col, fixed = sinks.classify_function(
             node, module_functions, frozenset(params)
         )
 
@@ -163,13 +204,14 @@ def scan_source(
         # `destructiveHint=True` with nothing else found is still worth
         # surfacing: the author has told us it is dangerous.
         if not category and annotations.get("destructiveHint"):
-            category, reason, confidence, sink_line, chain, sink_col = (
+            category, reason, confidence, sink_line, chain, sink_col, fixed = (
                 "EXECUTION",
                 "declares destructiveHint=True",
                 "annotated",
                 getattr(node, "end_lineno", node.lineno) + 1,
                 [],
                 0,
+                False,
             )
 
         if not category:
@@ -191,9 +233,15 @@ def scan_source(
             sink_col=sink_col,
         )
 
+        # A method on a tool class is named by its class: `ShellTool._run`
+        # says something, `_run` says nothing.
+        tool_name = node.name
+        if class_name and route.endswith(f"({node.name})"):
+            tool_name = f"{class_name}.{node.name}"
+
         findings.append(
             Finding(
-                tool=node.name,
+                tool=tool_name,
                 file=path,
                 line=node.lineno,
                 category=category,
@@ -205,14 +253,22 @@ def scan_source(
                 action=action_map.get(node.name, ""),
                 annotation_mismatch=mismatch,
                 annotations=annotations,
+                fixed_program=fixed,
             )
         )
 
     return findings
 
 
-def scan_file(path: str, result: ScanResult, config: Config | None = None) -> None:
-    """Analyse one file, appending to `result`."""
+def scan_file(
+    path: str, result: ScanResult, config: Config | None = None, rel_path: str | None = None
+) -> None:
+    """Analyse one file, appending to `result`.
+
+    `rel_path` is the path relative to the scan root, used only to decide
+    whether the file is test/example code. When absent the file is product
+    code.
+    """
     try:
         with open(path, encoding="utf-8") as fh:
             source = fh.read()
@@ -238,13 +294,15 @@ def scan_file(path: str, result: ScanResult, config: Config | None = None) -> No
     # most modules are like that.
     try:
         findings = (
-            scan_source(source, path, config, tree=tree)
-            if _might_register_a_tool(source)
-            else []
+            scan_source(source, path, config, tree=tree) if _might_register_a_tool(source) else []
         )
     except RecursionError:
         result.unsupported.append(UnsupportedFile(path, "expression too deeply nested to analyse"))
         return
+
+    if rel_path is not None and is_test_code(rel_path):
+        for f in findings:
+            f.in_test_code = True
 
     result.files += 1
     result.findings.extend(findings)
@@ -264,7 +322,7 @@ def _excluded(rel_path: str, patterns: list[str]) -> bool:
 def scan_path(target: str, config: Config | None = None) -> ScanResult:
     """Analyse a file or directory tree."""
     cfg = config or Config()
-    result = ScanResult()
+    result = ScanResult(include_tests=cfg.include_tests)
 
     if os.path.isfile(target):
         if target.endswith(SUPPORTED_SUFFIXES):
@@ -288,7 +346,7 @@ def scan_path(target: str, config: Config | None = None) -> ScanResult:
             if _excluded(rel, cfg.exclude):
                 continue
             if name.endswith(SUPPORTED_SUFFIXES):
-                scan_file(full, result, cfg)
+                scan_file(full, result, cfg, rel_path=rel)
             elif name.endswith(NOTABLE_UNSUPPORTED):
                 result.unsupported.append(
                     UnsupportedFile(full, "language not supported (Python only in v1)")

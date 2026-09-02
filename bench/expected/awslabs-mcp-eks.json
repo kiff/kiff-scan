@@ -1,0 +1,14 @@
+{
+  "_method": "Same method. Tools are registered on the handler class with self.mcp.tool(name=...)(self.method).",
+  "true": [
+    {
+      "id": "k8s_handler.py::K8sHandler.manage_k8s_resource",
+      "why": "Creates, patches or deletes any Kubernetes resource through K8sApis (k8s_apis.py). Cross-module: known miss."
+    },
+    {
+      "id": "k8s_handler.py::K8sHandler.apply_yaml",
+      "why": "Applies arbitrary YAML to the cluster through K8sApis. Cross-module: known miss."
+    }
+  ],
+  "false": []
+}

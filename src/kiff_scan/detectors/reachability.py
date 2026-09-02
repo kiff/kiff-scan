@@ -104,7 +104,14 @@ AGENT_FRAMEWORK_MODULES: frozenset[str] = frozenset(
 #: Base-class name suffixes that mark a class as an agent tool. LangChain and
 #: CrewAI tools are classes, not decorated functions, and their action lives in
 #: `_run`. Decorator-only reachability misses all of them.
-TOOL_BASE_SUFFIXES: tuple[str, ...] = ("Tool", "BaseTool", "Toolkit", "ToolSpec")
+TOOL_BASE_SUFFIXES: tuple[str, ...] = (
+    "Tool",
+    "BaseTool",
+    "Toolkit",
+    "ToolSpec",
+    "ToolExecutor",
+    "Executor",
+)
 
 #: Methods on such a class that the framework invokes with model-controlled
 #: arguments.
@@ -339,6 +346,9 @@ def is_tool_class(cls: ast.ClassDef) -> str:
     import path varies by framework while the name does not.
     """
     for base in cls.bases:
+        # `ToolExecutor[Action, Observation]` is a Subscript around the name.
+        while isinstance(base, ast.Subscript):
+            base = base.value
         name = _name_of(base)
         if name and any(name.endswith(suffix) for suffix in TOOL_BASE_SUFFIXES):
             return name
@@ -385,9 +395,12 @@ def tool_annotations(fn: ast.AST) -> dict[str, bool]:
         candidates: list[ast.Call] = []
         if name == "annotations" and isinstance(value, ast.Call):
             candidates.append(value)
-        elif name in ANNOTATION_HINTS and isinstance(value, ast.Constant):
-            if isinstance(value.value, bool):
-                out[name] = value.value
+        elif (
+            name in ANNOTATION_HINTS
+            and isinstance(value, ast.Constant)
+            and isinstance(value.value, bool)
+        ):
+            out[name] = value.value
         for call in candidates:
             for kw in call.keywords:
                 if (
