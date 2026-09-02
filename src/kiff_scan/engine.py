@@ -31,6 +31,34 @@ SUPPORTED_SUFFIXES: tuple[str, ...] = (".py",)
 NOTABLE_UNSUPPORTED: tuple[str, ...] = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".go", ".rb", ".java")
 
 
+#: Tokens that must appear in a file's text for it to be able to produce a
+#: finding. Every reachability route needs one of these somewhere: a decorator
+#: name, a tool base class, a registration call, or an action map. The file is
+#: still parsed either way -- an unparseable file must be reported as
+#: unsupported rather than counted as clean -- but a module with none of these
+#: skips the detector passes entirely.
+_REGISTRATION_TOKENS: tuple[bytes, ...] = (
+    b"tool",
+    b"Tool",
+    b"TOOL",
+    b"task",
+    b"action",
+    b"ACTION",
+    b"component",
+    b"skill",
+    b"kernel_function",
+    b"bind(",
+    b"GOVERNED",
+    b"KIFF",
+)
+
+
+def _might_register_a_tool(source: str) -> bool:
+    """Cheap text prefilter: could this file possibly expose a tool?"""
+    data = source.encode("utf-8", errors="ignore")
+    return any(token in data for token in _REGISTRATION_TOKENS)
+
+
 def _signature_params(fn: ast.AST) -> list[str]:
     """Parameter names of a function, excluding self/cls.
 
@@ -83,10 +111,19 @@ def _functions_with_class_context(
     return out
 
 
-def scan_source(source: str, path: str, config: Config | None = None) -> list[Finding]:
-    """Analyse one module's source. Raises SyntaxError if it does not parse."""
+def scan_source(
+    source: str,
+    path: str,
+    config: Config | None = None,
+    tree: ast.AST | None = None,
+) -> list[Finding]:
+    """Analyse one module's source. Raises SyntaxError if it does not parse.
+
+    An already-parsed `tree` may be passed in to avoid parsing twice.
+    """
     cfg = config or Config()
-    tree = ast.parse(source, filename=path)
+    if tree is None:
+        tree = ast.parse(source, filename=path)
 
     action_map = reachability.declared_action_map(tree)
     hook = decisions.module_hook(tree)
@@ -187,7 +224,7 @@ def scan_file(path: str, result: ScanResult, config: Config | None = None) -> No
         return
 
     try:
-        findings = scan_source(source, path, config)
+        tree = ast.parse(source, filename=path)
     except SyntaxError as exc:
         result.unsupported.append(UnsupportedFile(path, f"syntax error on line {exc.lineno}"))
         return
@@ -195,14 +232,26 @@ def scan_file(path: str, result: ScanResult, config: Config | None = None) -> No
         result.unsupported.append(UnsupportedFile(path, "expression too deeply nested to analyse"))
         return
 
+    # The file parsed, so it is analysable and counts. Whether the detectors
+    # need to run is a separate question: a module with no tool-registration
+    # token anywhere in its text cannot produce a finding, and in a real repo
+    # most modules are like that.
+    try:
+        findings = (
+            scan_source(source, path, config, tree=tree)
+            if _might_register_a_tool(source)
+            else []
+        )
+    except RecursionError:
+        result.unsupported.append(UnsupportedFile(path, "expression too deeply nested to analyse"))
+        return
+
     result.files += 1
     result.findings.extend(findings)
 
-    try:
-        if decisions.has_kiff_boundary(ast.parse(source, filename=path)):
-            result.kiff_present = True
-    except SyntaxError:  # pragma: no cover - already parsed once above
-        pass
+    # Reuses the tree parsed above rather than parsing the file a second time.
+    if decisions.has_kiff_boundary(tree):
+        result.kiff_present = True
 
 
 def _excluded(rel_path: str, patterns: list[str]) -> bool:
