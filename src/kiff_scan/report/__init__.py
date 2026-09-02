@@ -3,4 +3,4 @@ or opens a network connection."""
 
 from __future__ import annotations
 
-__all__ = ["json_out", "pretty", "sarif"]
+__all__ = ["assessment", "json_out", "pretty", "sarif"]

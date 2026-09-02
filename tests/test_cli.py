@@ -152,6 +152,31 @@ def test_output_flag_writes_a_file(tmp_path, capsys):
     assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
 
 
+def test_assess_writes_versioned_json_and_fails_on_hard_blockers(tmp_path, capsys):
+    out = tmp_path / "assessment.json"
+    assert main(["assess", UNGOVERNED, "--format", "json", "--output", str(out)]) == EXIT_FINDINGS
+    capsys.readouterr()
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["report_type"] == "kiff_agent_governability_assessment"
+    assert payload["conclusion"]["readiness"] == "not_ready"
+
+
+def test_assess_governed_code_is_conditional_and_exits_zero(capsys):
+    assert main(["assess", HOOKED]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "CONDITIONAL" in out
+    assert "not a compliance certification" in out
+
+
+def test_assess_writes_self_contained_html(tmp_path, capsys):
+    out = tmp_path / "assessment.html"
+    assert main(["assess", HOOKED, "--format", "html", "--output", str(out)]) == EXIT_OK
+    capsys.readouterr()
+    rendered = out.read_text(encoding="utf-8")
+    assert rendered.startswith("<!doctype html>")
+    assert "Governability scorecard" in rendered
+
+
 def test_show_unsupported_lists_files(tmp_path, capsys):
     (tmp_path / "agent.ts").write_text("const x = 1;\n", encoding="utf-8")
     main(["scan", str(tmp_path), "--show-unsupported"])
@@ -164,3 +189,27 @@ def test_version_flag(capsys):
     except SystemExit as exc:
         assert exc.code == 0
     assert "kiff-scan" in capsys.readouterr().out
+
+
+def test_evidence_command_and_deprecated_assess_alias(capsys):
+    """`assess` was renamed to `evidence`. The old name must keep working so
+    existing CI does not break, but it warns and is hidden from help — the
+    rename exists to stop this command colliding with the agentic KIFF
+    governance audit, which executes code and attacks claimed guarantees."""
+    # The fixture carries hard blockers, so the command reports findings.
+    assert main(["evidence", UNGOVERNED, "--format", "markdown"]) == EXIT_FINDINGS
+    fresh = capsys.readouterr()
+    assert "Agent Governability Evidence" in fresh.out
+    assert "deprecated" not in fresh.err
+
+    assert main(["assess", UNGOVERNED, "--format", "markdown"]) == EXIT_FINDINGS
+    aliased = capsys.readouterr()
+
+    def _without_timestamp(text: str) -> list[str]:
+        return [line for line in text.splitlines() if not line.startswith("- Generated:")]
+
+    assert _without_timestamp(aliased.out) == _without_timestamp(
+        fresh.out
+    ), "alias must be behaviourally identical apart from the generation time"
+    assert "deprecated" in aliased.err
+    assert "kiff-scan evidence" in aliased.err

@@ -19,6 +19,15 @@ from __future__ import annotations
 
 __version__ = "0.2.0"
 
+from .assessment import (
+    AssessmentBlocker,
+    AssessmentDimension,
+    EvidenceState,
+    GovernabilityAssessment,
+    Readiness,
+    Remediation,
+    assess,
+)
 from .config import Config, load_config
 from .engine import scan_file, scan_path, scan_source
 from .model import DecisionEvidence, Evidence, Finding, ScanResult, UnsupportedFile
@@ -29,14 +38,21 @@ from .taxonomy import CONSEQUENCES, Consequence, meets_threshold
 
 __all__ = [
     "CONSEQUENCES",
+    "AssessmentBlocker",
+    "AssessmentDimension",
     "Config",
     "Consequence",
     "DecisionEvidence",
     "Evidence",
+    "EvidenceState",
     "Finding",
+    "GovernabilityAssessment",
+    "Readiness",
+    "Remediation",
     "ScanResult",
     "UnsupportedFile",
     "__version__",
+    "assess",
     "load_config",
     "meets_threshold",
     "render",

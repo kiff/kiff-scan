@@ -22,9 +22,11 @@ import os
 import sys
 
 from . import __version__
+from .assessment import Readiness, assess
 from .config import Config, ConfigError, load_config
 from .engine import scan_path
 from .model import Finding, ScanResult
+from .report.assessment import assessment_to_html, assessment_to_json, assessment_to_markdown
 from .report.json_out import to_json, to_markdown
 from .report.pretty import render, render_explain
 from .report.sarif import to_sarif
@@ -37,6 +39,35 @@ EXIT_FINDINGS = 1
 EXIT_USAGE = 2
 
 FORMATS = ("pretty", "json", "sarif", "markdown")
+ASSESSMENT_FORMATS = ("markdown", "json", "html")
+
+
+def _add_analysis_options(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--config", metavar="FILE", help="config file (default: ./.kiff-scan.json)"
+    )
+    command.add_argument(
+        "--guard",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="treat NAME() as a guard that clears a finding (repeatable)",
+    )
+    command.add_argument(
+        "--tool-decorator",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="treat @NAME as exposing a function to the model (repeatable)",
+    )
+    command.add_argument(
+        "--include-tests",
+        action="store_true",
+        help=(
+            "count findings in test/example/cookbook code (default: listed but set aside "
+            "from the totals and the exit code)"
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -66,32 +97,46 @@ def build_parser() -> argparse.ArgumentParser:
         default="medium",
         help="exit 1 at this severity or above (default: medium; 'none' never fails)",
     )
-    scan.add_argument("--config", metavar="FILE", help="config file (default: ./.kiff-scan.json)")
-    scan.add_argument(
-        "--guard",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="treat NAME() as a guard that clears a finding (repeatable)",
-    )
-    scan.add_argument(
-        "--tool-decorator",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="treat @NAME as exposing a function to the model (repeatable)",
-    )
+    _add_analysis_options(scan)
     scan.add_argument(
         "--show-unsupported", action="store_true", help="list files that could not be analysed"
     )
-    scan.add_argument(
-        "--include-tests",
-        action="store_true",
-        help=(
-            "count findings in test/example/cookbook code (default: listed but set aside "
-            "from the totals and the exit code)"
-        ),
-    )
+
+    # `evidence` reports what the source can prove about the agents in a
+    # repository. It is deliberately not called an audit: it never executes the
+    # target, so it cannot test whether a claimed guarantee actually holds. That
+    # is the job of the separate kiff-audit workflow, which consumes this
+    # command's JSON as one of its evidence inputs.
+    for name in ("evidence", "assess"):
+        deprecated = name == "assess"
+        parser_kwargs = {}
+        if not deprecated:
+            # The alias is intentionally omitted from the subcommand list: it
+            # still works, but nothing should learn it from the help output.
+            parser_kwargs["help"] = "report what the source can prove about agent governability"
+        assessment = sub.add_parser(
+            name,
+            **parser_kwargs,
+            description=(
+                "Deprecated alias for `kiff-scan evidence`. Use `evidence` instead."
+                if deprecated
+                else "Report what static analysis can prove about the agents in a "
+                "repository, and say plainly what it cannot."
+            ),
+        )
+        assessment.add_argument(
+            "path", nargs="?", default=".", help="file or directory (default: .)"
+        )
+        assessment.add_argument(
+            "--format",
+            choices=ASSESSMENT_FORMATS,
+            default="markdown",
+            help="report format (default: markdown)",
+        )
+        assessment.add_argument(
+            "--output", metavar="FILE", help="write the report to FILE instead of stdout"
+        )
+        _add_analysis_options(assessment)
 
     explain = sub.add_parser("explain", help="show the analysed path for one finding")
     explain.add_argument("location", help="FILE:LINE, as printed by scan")
@@ -153,6 +198,29 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
     failing = [f for f in result.ungoverned if meets_threshold(f.severity, args.fail_on)]
     return EXIT_FINDINGS if failing else EXIT_OK
+
+
+def _cmd_assess(args: argparse.Namespace) -> int:
+    root = args.path
+    if not os.path.exists(root):
+        print(f"kiff-scan: path not found: {root}", file=sys.stderr)
+        return EXIT_USAGE
+
+    try:
+        cfg = _effective_config(args, root)
+    except ConfigError as exc:
+        print(f"kiff-scan: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    report = assess(scan_path(root, cfg), root)
+    if args.format == "json":
+        rendered = assessment_to_json(report)
+    elif args.format == "html":
+        rendered = assessment_to_html(report)
+    else:
+        rendered = assessment_to_markdown(report)
+    _emit(rendered, args.output)
+    return EXIT_FINDINGS if report.readiness is Readiness.NOT_READY else EXIT_OK
 
 
 def _parse_location(location: str) -> tuple[str, int]:
@@ -227,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Allow `kiff-scan .` as shorthand for `kiff-scan scan .`, since scanning is
     # the overwhelmingly common case.
-    known = {"scan", "explain"}
+    known = {"scan", "evidence", "assess", "explain"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         argv = ["scan"] + argv
     elif not argv:
@@ -239,6 +307,14 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_explain(args)
     if args.command == "scan":
         return _cmd_scan(args)
+    if args.command in ("evidence", "assess"):
+        if args.command == "assess":
+            print(
+                "kiff-scan: `assess` is deprecated and will be removed in a future "
+                "release; use `kiff-scan evidence` instead.",
+                file=sys.stderr,
+            )
+        return _cmd_assess(args)
 
     parser.print_help()
     return EXIT_USAGE

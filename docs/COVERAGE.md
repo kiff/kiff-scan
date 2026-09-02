@@ -159,6 +159,11 @@ These are real and worth stating plainly:
   code, not prompts.
 - Non-Python source.
 
+The `evidence` command does not expand this coverage. It reports these gaps as
+`not assessable` instead of treating them as passed checks. In particular, the
+assessment is not evidence of regulatory compliance, organizational governance,
+model quality, or production safety.
+
 ## Reporting a miss
 
 A case where the scanner is wrong is more useful than a case where it is right.
