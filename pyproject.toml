@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kiff-scan"
-version = "0.2.0"
+version = "0.3.0"
 description = "Find where an AI agent can reach a consequential action with no state-aware decision on the path."
 readme = "README.md"
 requires-python = ">=3.10"
