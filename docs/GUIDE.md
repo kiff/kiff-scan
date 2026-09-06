@@ -195,7 +195,7 @@ The default threshold is `high` for the CLI. The GitHub Action defaults to
 ## CI
 
 ```yaml
-- uses: kiff/kiff-scan@v0.2.0
+- uses: kiff/kiff-scan@v0.3.0
   with:
     path: .
     fail-on: high

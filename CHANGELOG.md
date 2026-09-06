@@ -5,10 +5,14 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-06
+
 ### Added
 
-- `kiff-scan assess` generates an evidence-backed Agent Governability Assessment
-  in Markdown, versioned JSON, or self-contained HTML.
+- `kiff-scan evidence` generates an evidence-backed Agent Governability Assessment
+  in Markdown, versioned JSON, or self-contained HTML. (`assess` remains as an
+  alias.) The README advertised this command from 0.2.0's release day, but
+  0.2.0 did not contain it; this release closes that gap.
 - Deterministic readiness rules keep high-consequence undecided paths and
   contradictory safety annotations as hard blockers, while unprovable
   governance dimensions remain explicitly `not assessable`.

@@ -176,7 +176,7 @@ pip install kiff-scan
 Python 3.10+. In CI:
 
 ```yaml
-- uses: kiff/kiff-scan@v0.2.0
+- uses: kiff/kiff-scan@v0.3.0
   with:
     path: .
     fail-on: high

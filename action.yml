@@ -34,7 +34,7 @@ inputs:
   version:
     description: "Package version to install. Defaults to the version matching this Action tag."
     required: false
-    default: "0.2.0"
+    default: "0.3.0"
 
 outputs:
   findings-count:
