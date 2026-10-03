@@ -233,12 +233,28 @@ only fixed cases is a trophy cabinet.
   and not.
 * [Threat model](./docs/THREAT_MODEL.md).
 
+## After the scan
+
+Each finding is an action a model can reach with nothing on the path that can
+refuse it. The fix is a decision before the call, made against current state
+(is this order still paid, is this the drained replica) and against how much
+the agent has already done today. That is the part a single role check cannot
+see.
+
+Write that decision however you like; any check the scanner recognizes clears
+the finding. If you want it outside the agent's code, the consequential
+functions the scan lists are the actions to put on the agent's
+[KIFF Card](https://kiff.dev/docs/kiff-cards): which of them it may call, how
+much per call and per day, and what happens to a call outside that (it waits
+for a person, or it is refused).
+
 ## Where this comes from
 
-I build [KIFF](https://kiff.dev), a runtime for the decision this scanner asks
-for. The scanner does not need it, does not talk to it, and works the same
-without it. Guard detection is vendor-neutral: your own `authorize()` clears a
-finding exactly as anything else does.
+I build [KIFF](https://kiff.dev). A business gives each AI agent a KIFF Card,
+and KIFF makes the decision this scanner asks for before each call runs. The
+scanner does not need it, does not talk to it, and works the same without it.
+Guard detection is vendor-neutral: your own `authorize()` clears a finding
+exactly as anything else does.
 
 ## License
 
